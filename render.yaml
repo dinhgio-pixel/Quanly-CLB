@@ -1,0 +1,17 @@
+# Render blueprint — web service gói FREE
+# Đẩy code lên GitHub rồi vào dashboard.render.com -> New -> Blueprint -> chọn repo.
+services:
+  - type: web
+    name: clb-vovinam
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # dán connection string Postgres của Supabase vào đây
+      - key: JWT_SECRET
+        generateValue: true  # Render tự sinh chuỗi bí mật
+      - key: NODE_ENV
+        value: production
+      - key: NODE_OPTIONS
+        value: --dns-result-order=ipv4first  # Render không có outbound IPv6: ép Node ưu tiên IPv4 để nối Supabase pooler
