@@ -129,7 +129,7 @@ function pageHead(title, extra) {
 function vLogin() {
   $("#topbar").classList.add("hidden"); $("#sidenav").classList.add("hidden");
   V.innerHTML = `<div class="login-wrap"><div class="login-box card">
-    <div class="login-logo">🥋</div><h1>Quản lý CLB Vovinam</h1>
+    <div class="login-logo"><img src="img/vovinam-logo.webp" alt="Vovinam"></div><h1>Quản lý CLB Vovinam</h1>
     <form id="f"><label>Tên đăng nhập</label><input name="username" autocomplete="username">
     <label>Mật khẩu</label><input name="password" type="password" autocomplete="current-password">
     <div class="btnrow"><button class="btn" style="flex:1">Đăng nhập</button></div></form></div></div>`;
