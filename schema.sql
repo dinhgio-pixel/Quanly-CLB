@@ -141,3 +141,19 @@ CREATE TABLE IF NOT EXISTS payments (
 CREATE INDEX IF NOT EXISTS idx_payments_branch  ON payments(branch_id);
 CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id);
 CREATE INDEX IF NOT EXISTS idx_payments_paid_on ON payments(paid_on);
+
+-- Chấm công HLV theo buổi và giờ dạy (mỗi dòng = 1 buổi dạy)
+CREATE TABLE IF NOT EXISTS coach_timesheets (
+  id         SERIAL PRIMARY KEY,
+  branch_id  INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  class_id   INTEGER REFERENCES classes(id) ON DELETE SET NULL,
+  work_date  DATE NOT NULL,
+  hours      NUMERIC(4,1) NOT NULL CHECK (hours > 0 AND hours <= 24),
+  note       VARCHAR(200) NOT NULL DEFAULT '',
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_timesheets_branch ON coach_timesheets(branch_id);
+CREATE INDEX IF NOT EXISTS idx_timesheets_user   ON coach_timesheets(user_id);
+CREATE INDEX IF NOT EXISTS idx_timesheets_date  ON coach_timesheets(work_date);

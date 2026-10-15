@@ -63,6 +63,7 @@ const NAV = [
   ["#/students", "🧑‍🎓", "Học viên"],
   ["#/attendance", "✅", "Điểm danh"],
   ["#/teaching-logs", "📝", "Nhật ký dạy"],
+  ["#/timesheets", "⏱️", "Chấm công"],
   ["#/fees", "💰", "Thu phí"],
   ["#/packages", "📦", "Gói học", true],
   ["#/branches", "🏢", "Chi nhánh", true],
@@ -549,6 +550,73 @@ window.logDel = async (id) => {
   try { await api("DELETE", "/teaching-logs/" + id); toast("Đã xóa"); route(); } catch (err) { toast(err.message); }
 };
 
+/* ----- chấm công HLV ----- */
+let TS_CACHE = [];
+async function vTimesheets() {
+  const m = todayInput().slice(0, 7);
+  const coachOpts = isAdmin()
+    ? `<select id="tsCoach" style="width:auto"><option value="">Tất cả HLV</option>${
+        S.users.filter((u) => u.role === "coach" && u.status === "active")
+          .map((u) => `<option value="${u.id}">${esc(u.full_name || u.username)}</option>`).join("")}</select>`
+    : "";
+  V.innerHTML = pageHead("Chấm công HLV", isAdmin() ? `<button class="btn" onclick="tsForm()">+ Chấm công</button>` : "") +
+    `<div class="card"><div class="row"><input id="tsMonth" type="month" value="${m}" style="width:auto">${coachOpts}
+    <button class="btn" onclick="loadTimesheets()">Xem</button></div></div>
+    <div id="tsSummary"></div>
+    <div class="card"><h3>Buổi dạy trong tháng</h3><div id="tsList"><p class="muted">Đang tải...</p></div></div>`;
+  loadTimesheets();
+}
+window.loadTimesheets = async () => {
+  const month = $("#tsMonth").value || todayInput().slice(0, 7);
+  const uid = isAdmin() && $("#tsCoach") ? $("#tsCoach").value : "";
+  const q = `?branch_id=${S.branchId}&month=${month}${uid ? "&user_id=" + uid : ""}`;
+  try {
+    const [summary, list] = await Promise.all([
+      api("GET", "/timesheets/summary" + q),
+      api("GET", "/timesheets" + q),
+    ]);
+    TS_CACHE = list;
+    $("#tsSummary").innerHTML = `<div class="grid kpi">` + summary.map((s) =>
+      `<div class="card"><div class="num">${s.total_hours}</div><div class="lbl">${esc(s.full_name || s.username)} · ${s.sessions} buổi</div></div>`
+    ).join("") + `</div>`;
+    $("#tsList").innerHTML = list.length
+      ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>HLV</th><th>Lớp</th><th style="text-align:right">Giờ</th><th>Ghi chú</th>${isAdmin() ? "<th></th>" : ""}</tr>` +
+        list.map((t) => `<tr><td>${fmtDate(t.work_date)}</td><td>${esc(t.coach_name)}</td><td>${esc(t.class_name || "—")}</td>` +
+          `<td style="text-align:right"><b>${t.hours}</b></td><td class="muted">${esc(t.note || "")}</td>` +
+          (isAdmin() ? `<td><div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="tsForm(${t.id})">Sửa</button>` +
+            `<button class="btn small danger" onclick="tsDel(${t.id})">Xóa</button></div></td>` : "") + `</tr>`).join("") + `</table></div>`
+      : `<p class="muted">Chưa có buổi dạy nào trong tháng này.</p>`;
+  } catch (err) {
+    $("#tsList").innerHTML = `<p style="color:var(--bad)">${esc(err.message)}</p>`;
+  }
+};
+window.tsForm = async (id) => {
+  const t = id ? (TS_CACHE.find((x) => x.id === id) || {}) : {};
+  const coaches = S.users.filter((u) => u.role === "coach" && u.status === "active");
+  openModal(`<h3>${id ? "Sửa" : "Thêm"} chấm công HLV</h3><form id="f">
+    <label>Huấn luyện viên</label><select name="user_id">${
+      coaches.map((u) => `<option value="${u.id}" ${t.user_id == u.id ? "selected" : ""}>${esc(u.full_name || u.username)}</option>`).join("")}</select>
+    <label>Lớp dạy</label><select name="class_id"><option value="">— Ngoài lớp / khác —</option>${
+      S.classes.map((c) => `<option value="${c.id}" ${t.class_id == c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+    <label>Ngày dạy</label><input name="work_date" type="date" value="${(t.work_date || todayInput()).slice(0, 10)}">
+    <label>Số giờ dạy</label><input name="hours" type="number" step="0.5" min="0.5" max="24" value="${t.hours || 1.5}">
+    <label>Ghi chú</label><input name="note" value="${esc(t.note || "")}">
+    <div class="btnrow"><button class="btn">Lưu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    const body = { branch_id: S.branchId, user_id: fd.get("user_id"), class_id: fd.get("class_id") || null,
+      work_date: fd.get("work_date"), hours: fd.get("hours"), note: fd.get("note") };
+    try {
+      if (id) await api("PUT", "/timesheets/" + id, body); else await api("POST", "/timesheets", body);
+      closeModal(); toast("Đã lưu"); route();
+    } catch (err) { toast(err.message); }
+  };
+};
+window.tsDel = async (id) => {
+  if (!await confirmDlg("Xóa buổi chấm công này?")) return;
+  try { await api("DELETE", "/timesheets/" + id); toast("Đã xóa"); route(); } catch (err) { toast(err.message); }
+};
+
 /* ----- fees ----- */
 async function vFees() {
   V.innerHTML = pageHead("Thu phí", `<button class="btn" onclick="payFor()">+ Ghi nhận thu</button>`) + `<div id="feeBody"><p class="muted">Đang tải...</p></div>`;
@@ -662,6 +730,7 @@ async function route() {
     else if (seg[0] === "packages") await vPackages();
     else if (seg[0] === "attendance") await vAttendance();
     else if (seg[0] === "teaching-logs") await vTeachingLogs();
+    else if (seg[0] === "timesheets") await vTimesheets();
     else if (seg[0] === "fees") await vFees();
     else if (seg[0] === "users") await vUsers();
     else await vDashboard();

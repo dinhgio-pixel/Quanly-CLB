@@ -3,7 +3,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth } = require("../auth");
-const { accessibleClassIds, classIdCondition, assertClassAccess } = require("../helpers");
+const { accessibleClassIds, classIdCondition, assertClassAccess, parseHours } = require("../helpers");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -53,6 +53,26 @@ router.post("/sessions", async (req, res) => {
       });
     }
   }
+  // Đồng bộ chấm công HLV: HLV bấm lưu điểm danh = xác nhận buổi dạy.
+  // Mỗi HLV/lớp/ngày chỉ ghi 1 lần (tránh trùng khi lưu lại).
+  if (req.user.role === "coach") {
+    const cls = await db.query("SELECT schedule, branch_id FROM classes WHERE id = $1", [classId]);
+    if (cls.rows[0]) {
+      const exists = await db.query(
+        "SELECT id FROM coach_timesheets WHERE user_id = $1 AND class_id = $2 AND work_date = $3",
+        [req.user.id, classId, session_date]
+      );
+      if (!exists.rows[0]) {
+        await db.query(
+          `INSERT INTO coach_timesheets (branch_id, user_id, class_id, work_date, hours, note, created_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [cls.rows[0].branch_id, req.user.id, classId, session_date,
+           parseHours(cls.rows[0].schedule), "Tự động từ điểm danh", req.user.id]
+        );
+      }
+    }
+  }
+
   res.json({ ok: true, session_id: sessionId });
 });
 

@@ -27,6 +27,19 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Đọc số giờ dạy từ chuỗi lịch lớp, vd "T2/4/6 17:00–18:30 · Tầng 4" -> 1.5.
+// Không đọc được -> mặc định 1.5 giờ.
+function parseHours(schedule) {
+  const m = String(schedule || "").match(/(\d{1,2}):(\d{2})\s*[–—-]\s*(\d{1,2}):(\d{2})/);
+  if (!m) return 1.5;
+  const start = Number(m[1]) * 60 + Number(m[2]);
+  let end = Number(m[3]) * 60 + Number(m[4]);
+  if (end <= start) end += 24 * 60; // ca qua nửa đêm
+  const h = (end - start) / 60;
+  if (!(h > 0) || h > 24) return 1.5;
+  return Math.round(h * 10) / 10;
+}
+
 // null = admin (toàn quyền); mảng rỗng = HLV chưa được gán lớp nào
 async function accessibleClassIds(user) {
   if (user.role === "admin") return null;
@@ -57,4 +70,4 @@ async function studentClassId(db, studentId) {
   return rows[0] ? rows[0].class_id : null;
 }
 
-module.exports = { computeFeeState, isoDate, todayStr, accessibleClassIds, classIdCondition, assertClassAccess, studentClassId };
+module.exports = { computeFeeState, isoDate, todayStr, parseHours, accessibleClassIds, classIdCondition, assertClassAccess, studentClassId };

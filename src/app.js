@@ -17,6 +17,7 @@ function createApp() {
   app.use("/api/attendance", require("./routes/attendance"));
   app.use("/api/teaching-logs", require("./routes/logs"));
   app.use("/api/payments", require("./routes/payments"));
+  app.use("/api/timesheets", require("./routes/timesheets"));
   app.use("/api/dashboard", require("./routes/dashboard"));
 
   app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
