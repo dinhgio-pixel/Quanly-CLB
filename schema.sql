@@ -157,3 +157,23 @@ CREATE TABLE IF NOT EXISTS coach_timesheets (
 CREATE INDEX IF NOT EXISTS idx_timesheets_branch ON coach_timesheets(branch_id);
 CREATE INDEX IF NOT EXISTS idx_timesheets_user   ON coach_timesheets(user_id);
 CREATE INDEX IF NOT EXISTS idx_timesheets_date  ON coach_timesheets(work_date);
+
+-- Yêu cầu đổi ca dạy của HLV (HLV gửi, quản trị viên duyệt)
+CREATE TABLE IF NOT EXISTS shift_swaps (
+  id           SERIAL PRIMARY KEY,
+  branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  class_id     INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  work_date    DATE NOT NULL,
+  swap_with_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  reason       VARCHAR(300) NOT NULL DEFAULT '',
+  status       VARCHAR(20) NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending', 'approved', 'rejected')),
+  reviewed_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at  TIMESTAMPTZ,
+  review_note  VARCHAR(300) NOT NULL DEFAULT '',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_shift_swaps_branch    ON shift_swaps(branch_id);
+CREATE INDEX IF NOT EXISTS idx_shift_swaps_requester ON shift_swaps(requester_id);
+CREATE INDEX IF NOT EXISTS idx_shift_swaps_status    ON shift_swaps(status);

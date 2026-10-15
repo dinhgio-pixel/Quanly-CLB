@@ -64,6 +64,7 @@ const NAV = [
   ["#/attendance", "✅", "Điểm danh"],
   ["#/teaching-logs", "📝", "Nhật ký dạy"],
   ["#/timesheets", "⏱️", "Chấm công"],
+  ["#/shift-swaps", "🔄", "Đổi ca"],
   ["#/fees", "💰", "Thu phí"],
   ["#/packages", "📦", "Gói học", true],
   ["#/branches", "🏢", "Chi nhánh", true],
@@ -118,6 +119,15 @@ async function refreshLookups() {
 
 const className = (id) => (S.classes.find((c) => c.id === Number(id)) || {}).name || "—";
 const pkgName = (id) => (S.packages.find((p) => p.id === Number(id)) || {}).name || "—";
+// Chuẩn hóa danh sách lớp của HLV (đề phòng dữ liệu trả về dạng chuỗi JSON)
+const classIdsOf = (u) => {
+  const v = u ? u.class_ids : null;
+  if (Array.isArray(v)) return v.map(Number).filter((n) => Number.isInteger(n));
+  try { const p = JSON.parse(v || "[]"); return Array.isArray(p) ? p.map(Number).filter((n) => Number.isInteger(n)) : []; }
+  catch (e) { return []; }
+};
+const SWAP_LABEL = { pending: "Chờ duyệt", approved: "Đã duyệt", rejected: "Từ chối" };
+const swapBadge = (s) => `<span class="badge ${s === "approved" ? "b-paid" : s === "rejected" ? "b-overdue" : "b-due_soon"}">${SWAP_LABEL[s] || s}</span>`;
 
 /* ---------- views ---------- */
 const V = $("#view");
@@ -291,20 +301,27 @@ async function vClassDetail(id, tab) {
       <td>${fmtDate(s.paid_through)}</td><td>${feeBadge(s.fee_state)}</td>
       <td>${["paid"].includes(s.fee_state) ? "" : `<button class="btn small" onclick="payFor(${s.id},${id})">Thu phí</button>`}</td></tr>`).join("")}</table></div>`;
   } else if (tab === "coach" && isAdmin()) {
-    const assigned = await api("GET", `/users`);
-    const coaches = assigned.filter((u) => u.role === "coach");
-    el.innerHTML = `<p class="muted">Chọn HLV phụ trách lớp này (HLV chỉ thấy và quản lý lớp được gán):</p>` +
-      coaches.map((u) => { const has = (u.class_ids || []).includes(Number(id)); return `
-      <div class="att-row"><div class="nm"><b>${esc(u.full_name || u.username)}</b> <span class="muted">@${esc(u.username)}</span></div>
-      <button class="btn small ${has ? "danger" : "ok"}" onclick="toggleCoach(${u.id},${id},${has})">${has ? "Gỡ" : "Gán"}</button></div>`; }).join("") +
-      (coaches.length ? "" : `<p class="muted">Chưa có tài khoản HLV nào. Tạo ở mục Tài khoản.</p>`);
+    try {
+      const assigned = await api("GET", "/users");
+      const coaches = assigned.filter((u) => u.role === "coach");
+      el.innerHTML = `<p class="muted">Chọn HLV phụ trách lớp này (có thể gán nhiều HLV cùng 1 lớp; HLV chỉ thấy và quản lý lớp được gán):</p>` +
+        coaches.map((u) => { const has = classIdsOf(u).includes(Number(id)); return `
+        <div class="att-row"><div class="nm"><b>${esc(u.full_name || u.username)}</b> <span class="muted">@${esc(u.username)}</span></div>
+        <button class="btn small ${has ? "danger" : "ok"}" onclick="toggleCoach(${u.id},${id},${has})">${has ? "Gỡ" : "Gán"}</button></div>`; }).join("") +
+        (coaches.length ? "" : `<p class="muted">Chưa có tài khoản HLV nào. Tạo ở mục Tài khoản.</p>`);
+    } catch (err) {
+      el.innerHTML = `<p style="color:var(--bad)">Không tải được danh sách HLV: ${esc(err.message)}</p>`;
+    }
   }
 }
 window.toggleCoach = async (uid, cid, has) => {
-  const cur = await api("GET", `/users/${uid}/classes`);
-  const next = has ? cur.filter((x) => x !== cid) : [...cur, cid];
-  await api("PUT", `/users/${uid}/classes`, { classIds: next });
-  toast(has ? "Đã gỡ HLV" : "Đã gán HLV"); vClassDetail(cid, "coach");
+  try {
+    const cur = await api("GET", `/users/${uid}/classes`);
+    const next = has ? cur.filter((x) => x !== cid) : [...cur, cid];
+    await api("PUT", `/users/${uid}/classes`, { classIds: next });
+    toast(has ? "Đã gỡ HLV" : "Đã gán HLV");
+    vClassDetail(cid, "coach");
+  } catch (err) { toast("Lỗi: " + err.message); }
 };
 
 /* ----- students ----- */
@@ -617,6 +634,71 @@ window.tsDel = async (id) => {
   try { await api("DELETE", "/timesheets/" + id); toast("Đã xóa"); route(); } catch (err) { toast(err.message); }
 };
 
+/* ----- đổi ca dạy ----- */
+async function vShiftSwaps() {
+  V.innerHTML = pageHead("Đổi ca dạy", `<button class="btn" onclick="shiftForm()">+ Yêu cầu đổi ca</button>`) +
+    (isAdmin()
+      ? `<div class="card"><div class="row"><select id="swStatus" style="width:auto"><option value="">Tất cả trạng thái</option><option value="pending" selected>Chờ duyệt</option><option value="approved">Đã duyệt</option><option value="rejected">Từ chối</option></select><button class="btn" onclick="loadShifts()">Lọc</button></div></div>`
+      : `<div class="card"><p class="muted">HLV nào dạy thay sẽ điểm danh bằng tài khoản của mình — buổi dạy tự ghi chấm công cho người đó.</p></div>`) +
+    `<div class="card"><div id="swList"><p class="muted">Đang tải...</p></div></div>`;
+  loadShifts();
+}
+window.loadShifts = async () => {
+  try {
+    const st = isAdmin() && $("#swStatus") ? $("#swStatus").value : "";
+    const list = await api("GET", `/shift-swaps?branch_id=${S.branchId}${st ? "&status=" + st : ""}`);
+    $("#swList").innerHTML = list.length ? `<div class="tbl-wrap"><table>
+      <tr><th>Ngày</th><th>Lớp</th><th>Người xin</th><th>Đổi với</th><th>Lý do</th><th>Trạng thái</th><th></th></tr>` +
+      list.map((s) => `<tr><td>${fmtDate(s.work_date)}</td><td>${esc(s.class_name)}</td>
+        <td>${esc(s.requester_name || s.requester_username)}</td>
+        <td>${esc(s.swap_with_name || s.swap_with_username || "—")}</td>
+        <td class="muted">${esc(s.reason || "")}${s.review_note ? `<br><b>Phản hồi:</b> ${esc(s.review_note)}` : ""}</td>
+        <td>${swapBadge(s.status)}</td><td>` +
+        (isAdmin() && s.status === "pending"
+          ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ok" onclick="shiftReview(${s.id},true)">Duyệt</button><button class="btn small danger" onclick="shiftReview(${s.id},false)">Từ chối</button></div>`
+          : (!isAdmin() && s.status === "pending" ? `<button class="btn small ghost" onclick="shiftCancel(${s.id})">Hủy</button>` : "")) +
+        `</td></tr>`).join("") + `</table></div>`
+      : `<p class="muted">Chưa có yêu cầu đổi ca.</p>`;
+  } catch (err) {
+    $("#swList").innerHTML = `<p style="color:var(--bad)">${esc(err.message)}</p>`;
+  }
+};
+window.shiftForm = async () => {
+  const coaches = await api("GET", "/shift-swaps/coaches").catch(() => []);
+  const others = coaches.filter((c) => c.id !== S.user.id);
+  openModal(`<h3>Yêu cầu đổi ca dạy</h3><form id="f">
+    <label>Lớp</label><select name="class_id">${S.classes.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <label>Ngày dạy cần đổi</label><input name="work_date" type="date" value="${todayInput()}" required>
+    <label>Muốn đổi với HLV</label><select name="swap_with_id"><option value="">— Nhờ quản trị viên sắp xếp —</option>${
+      others.map((c) => `<option value="${c.id}">${esc(c.full_name || c.username)}</option>`).join("")}</select>
+    <label>Lý do</label><input name="reason" maxlength="300" placeholder="VD: bận việc gia đình">
+    <div class="btnrow"><button class="btn">Gửi yêu cầu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    try {
+      await api("POST", "/shift-swaps", { branch_id: S.branchId, class_id: fd.get("class_id"),
+        work_date: fd.get("work_date"), swap_with_id: fd.get("swap_with_id") || null, reason: fd.get("reason") });
+      closeModal(); toast("Đã gửi yêu cầu"); route();
+    } catch (err) { toast(err.message); }
+  };
+};
+window.shiftReview = async (id, ok) => {
+  let note = "";
+  if (!ok) {
+    const r = window.prompt("Lý do từ chối (không bắt buộc):");
+    if (r === null) return;
+    note = r;
+  }
+  try {
+    await api("PUT", `/shift-swaps/${id}/${ok ? "approve" : "reject"}`, { review_note: note });
+    toast(ok ? "Đã duyệt đổi ca" : "Đã từ chối"); route();
+  } catch (err) { toast(err.message); }
+};
+window.shiftCancel = async (id) => {
+  if (!await confirmDlg("Hủy yêu cầu đổi ca này?")) return;
+  try { await api("DELETE", "/shift-swaps/" + id); toast("Đã hủy"); route(); } catch (err) { toast(err.message); }
+};
+
 /* ----- fees ----- */
 async function vFees() {
   V.innerHTML = pageHead("Thu phí", `<button class="btn" onclick="payFor()">+ Ghi nhận thu</button>`) + `<div id="feeBody"><p class="muted">Đang tải...</p></div>`;
@@ -670,7 +752,7 @@ async function vUsers() {
     `<div class="card"><div class="tbl-wrap"><table><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Lớp phụ trách</th><th>TT</th><th></th></tr>
     ${users.map((u) => `<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.full_name || "—")}</td>
       <td>${u.role === "admin" ? "Quản trị" : "HLV"}</td>
-      <td class="muted">${(u.class_ids || []).map((id) => esc(className(id))).join(", ") || "—"}</td>
+      <td class="muted">${classIdsOf(u).map((cid) => esc(className(cid))).join(", ") || "—"}</td>
       <td>${u.status === "active" ? `<span class="badge b-active">Mở</span>` : `<span class="badge b-inactive">Khóa</span>`}</td>
       <td><button class="btn small ghost" onclick="userForm(${u.id})">Sửa</button></td></tr>`).join("")}</table></div>
       <p class="muted">Gán lớp cho HLV: vào Lớp học → mở lớp → tab HLV.</p></div>`;
@@ -684,6 +766,8 @@ window.userForm = async (id) => {
     <label>Mật khẩu ${id ? "(để trống nếu không đổi)" : ""}</label><input name="password" type="password" ${id ? "" : "required"}>
     <label>Vai trò</label><select name="role"><option value="coach" ${u.role === "coach" ? "selected" : ""}>Huấn luyện viên</option>
       <option value="admin" ${u.role === "admin" ? "selected" : ""}>Quản trị viên</option></select>
+    <label>Lớp phụ trách (chỉ áp dụng cho HLV — có thể chọn nhiều lớp)</label>
+    <div>${S.classes.map((c) => `<label style="display:flex;gap:.45rem;align-items:center;margin:.3rem 0;font-size:.95rem;color:var(--ink)"><input type="checkbox" name="class_id" value="${c.id}" style="width:auto" ${classIdsOf(u).includes(c.id) ? "checked" : ""}> ${esc(c.name)}</label>`).join("") || `<p class="muted">Chưa có lớp nào.</p>`}</div>
     <label>Trạng thái</label><select name="status"><option value="active" ${u.status !== "inactive" ? "selected" : ""}>Đang mở</option>
       <option value="inactive" ${u.status === "inactive" ? "selected" : ""}>Khóa</option></select>
     <div class="btnrow"><button class="btn">Lưu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button>
@@ -694,7 +778,14 @@ window.userForm = async (id) => {
     if (fd.get("password")) body.password = fd.get("password");
     if (!id) body.username = fd.get("username");
     try {
-      if (id) await api("PUT", "/users/" + id, body); else await api("POST", "/users", body);
+      let uid = id;
+      if (id) await api("PUT", "/users/" + id, body);
+      else { const created = await api("POST", "/users", body); uid = created.id; }
+      // Lưu lớp phụ trách cho HLV
+      if (uid && body.role === "coach") {
+        const checked = $$("#f input[name=class_id]:checked").map((x) => Number(x.value));
+        await api("PUT", `/users/${uid}/classes`, { classIds: checked });
+      }
       closeModal(); toast("Đã lưu"); vUsers();
     } catch (err) { toast(err.message); }
   };
@@ -731,6 +822,7 @@ async function route() {
     else if (seg[0] === "attendance") await vAttendance();
     else if (seg[0] === "teaching-logs") await vTeachingLogs();
     else if (seg[0] === "timesheets") await vTimesheets();
+    else if (seg[0] === "shift-swaps") await vShiftSwaps();
     else if (seg[0] === "fees") await vFees();
     else if (seg[0] === "users") await vUsers();
     else await vDashboard();
