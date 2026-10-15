@@ -11,8 +11,8 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   background-color: var(--bg);
-  /* Nền tre thật, phủ trắng để chữ luôn đọc rõ */
-  background-image: linear-gradient(rgba(255,255,255,.9), rgba(255,255,255,.9)), url(../img/bamboo-hero.jpg);
+  /* Nền tre thật, phủ trắng vừa phải để vừa rõ vừa đọc chữ tốt */
+  background-image: linear-gradient(rgba(255,255,255,.75), rgba(255,255,255,.75)), url(../img/bamboo-hero.jpg);
   background-repeat: no-repeat; background-position: center; background-attachment: fixed;
   background-size: cover;
   color: var(--ink); font-size: 15px; line-height: 1.5; }
