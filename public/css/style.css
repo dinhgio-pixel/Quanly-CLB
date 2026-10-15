@@ -1,4 +1,4 @@
-/* Quản lý CLB Vovinam — giao diện xanh Vovinam + họa tiết tre nhẹ nhàng */
+/* Quản lý CLB Vovinam — gói giao diện PRO: xanh Vovinam + tre thật */
 :root {
   --bg: #eef4fb; --card: #fff; --ink: #16263d; --muted: #5d6b82;
   --line: #dde6f1; --pri: #1565c0; --pri-mid: #2f7fd0; --pri-d: #0d47a1;
@@ -11,8 +11,8 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   background-color: var(--bg);
-  /* Nền tre: ảnh thật phủ trắng mờ để không rối chữ */
-  background-image: linear-gradient(rgba(255,255,255,.88), rgba(255,255,255,.88)), url(../img/bamboo.jpg);
+  /* Nền tre thật, phủ trắng để chữ luôn đọc rõ */
+  background-image: linear-gradient(rgba(255,255,255,.9), rgba(255,255,255,.9)), url(../img/bamboo-hero.jpg);
   background-repeat: no-repeat; background-position: center; background-attachment: fixed;
   background-size: cover;
   color: var(--ink); font-size: 15px; line-height: 1.5; }
@@ -47,6 +47,10 @@ a { color: var(--pri); }
 
 /* Main */
 #view { padding: .9rem; max-width: 1100px; margin: 0 auto; padding-bottom: 4rem; }
+/* Gạch nhấn xanh dưới tiêu đề trang */
+#view > .row.spread > h1 { position: relative; padding-bottom: .35rem; }
+#view > .row.spread > h1::after { content: ""; position: absolute; left: 0; bottom: 0; width: 46px; height: 3px;
+  border-radius: 2px; background: linear-gradient(90deg, var(--pri), var(--pri-mid)); }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: .95rem; margin-bottom: .8rem; box-shadow: var(--shadow); }
 .row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
@@ -56,7 +60,9 @@ a { color: var(--pri); }
 .grid.kpi { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 .kpi .card { text-align: center; margin: 0; border-top: 3px solid var(--pri-soft2); transition: transform .15s, box-shadow .15s; }
 .kpi .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
-.kpi .num { font-size: 1.7rem; font-weight: 800; color: var(--pri); }
+.kpi .num { font-size: 1.8rem; font-weight: 800;
+  background: linear-gradient(180deg, var(--pri-mid), var(--pri-d));
+  -webkit-background-clip: text; background-clip: text; color: transparent; }
 .kpi .lbl { font-size: .82rem; color: var(--muted); }
 
 /* Table */
@@ -101,13 +107,21 @@ textarea { min-height: 90px; resize: vertical; }
   color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap; }
 .tabs button.active { color: var(--pri); border-color: var(--pri); font-weight: 700; }
 
-/* Login */
-.login-wrap { min-height: 80vh; display: flex; align-items: center; justify-content: center; }
-.login-box { width: 100%; max-width: 360px; background: rgba(255,255,255,.92); border: 1px solid var(--line);
-  border-radius: 18px; padding: 1.6rem 1.4rem; box-shadow: var(--shadow-lg); }
-.login-box h1 { text-align: center; color: var(--pri-d); }
-.login-logo { font-size: 3rem; text-align: center; }
-.login-logo img { width: 96px; height: 96px; border-radius: 22px; object-fit: cover; box-shadow: var(--shadow-lg); }
+/* ===== Màn hình đăng nhập — landing hero tre ===== */
+.login-wrap { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem 1rem; overflow-y: auto;
+  background-image: linear-gradient(115deg, rgba(10,35,70,.9) 0%, rgba(10,35,70,.55) 48%, rgba(21,101,192,.28) 100%), url(../img/bamboo-hero.jpg);
+  background-size: cover; background-position: center; }
+.login-box { width: 100%; max-width: 380px; background: rgba(255,255,255,.94);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,.6); border-radius: 20px; padding: 1.8rem 1.5rem;
+  box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+.login-box h1 { text-align: center; color: var(--pri-d); margin-bottom: .2rem; }
+.login-box h1::after { content: "Học viên • Điểm danh • Thu phí"; display: block; font-size: .82rem;
+  font-weight: 400; color: var(--muted); margin-top: .35rem; }
+.login-logo { text-align: center; margin-bottom: .4rem; }
+.login-logo img { width: 110px; height: 110px; border-radius: 26px; object-fit: cover;
+  box-shadow: 0 8px 24px rgba(13,71,161,.35); border: 3px solid rgba(255,255,255,.85); }
 
 /* Toast + modal */
 #toast { position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%); background: #0e2a4a;
