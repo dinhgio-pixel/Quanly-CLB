@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
   username      VARCHAR(50)  NOT NULL UNIQUE,
   password_hash TEXT         NOT NULL,
   role          VARCHAR(20)  NOT NULL DEFAULT 'coach'
-                CHECK (role IN ('admin', 'coach')),
+                CHECK (role IN ('admin', 'coach', 'student')),
   full_name     VARCHAR(100) NOT NULL DEFAULT '',
   status        VARCHAR(20)  NOT NULL DEFAULT 'active'
                 CHECK (status IN ('active', 'inactive')),
@@ -81,6 +81,9 @@ CREATE TABLE IF NOT EXISTS students (
   height_cm    NUMERIC(5,1),
   weight_kg    NUMERIC(5,1),
   health_note  TEXT NOT NULL DEFAULT '',
+  belt_level   VARCHAR(50) NOT NULL DEFAULT '',
+  leave_reason VARCHAR(300) NOT NULL DEFAULT '',
+  stopped_at   DATE,
   status       VARCHAR(20) NOT NULL DEFAULT 'active'
                CHECK (status IN ('active', 'paused', 'stopped')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -119,6 +122,8 @@ CREATE TABLE IF NOT EXISTS teaching_logs (
   class_id   INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
   log_date   DATE NOT NULL,
   content    TEXT NOT NULL,
+  details    TEXT NOT NULL DEFAULT '',
+  note       VARCHAR(300) NOT NULL DEFAULT '',
   created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -177,3 +182,36 @@ CREATE TABLE IF NOT EXISTS shift_swaps (
 CREATE INDEX IF NOT EXISTS idx_shift_swaps_branch    ON shift_swaps(branch_id);
 CREATE INDEX IF NOT EXISTS idx_shift_swaps_requester ON shift_swaps(requester_id);
 CREATE INDEX IF NOT EXISTS idx_shift_swaps_status    ON shift_swaps(status);
+
+-- ============================================================
+-- Migration cho DB đang chạy (chạy lại an toàn mỗi lần deploy)
+-- ============================================================
+
+-- Học viên: cấp đai, nguyên nhân nghỉ, ngày nghỉ
+ALTER TABLE students ADD COLUMN IF NOT EXISTS belt_level VARCHAR(50) NOT NULL DEFAULT '';
+ALTER TABLE students ADD COLUMN IF NOT EXISTS leave_reason VARCHAR(300) NOT NULL DEFAULT '';
+ALTER TABLE students ADD COLUMN IF NOT EXISTS stopped_at DATE;
+
+-- Nhật ký dạy: chi tiết + ghi chú
+ALTER TABLE teaching_logs ADD COLUMN IF NOT EXISTS details TEXT NOT NULL DEFAULT '';
+ALTER TABLE teaching_logs ADD COLUMN IF NOT EXISTS note VARCHAR(300) NOT NULL DEFAULT '';
+
+-- Tài khoản học viên: liên kết tới hồ sơ học viên
+ALTER TABLE users ADD COLUMN IF NOT EXISTS student_id INTEGER REFERENCES students(id) ON DELETE SET NULL;
+
+-- Yêu cầu xóa học viên (HLV gửi, quản trị viên duyệt)
+CREATE TABLE IF NOT EXISTS student_delete_requests (
+  id           SERIAL PRIMARY KEY,
+  branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  student_id   INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason       VARCHAR(300) NOT NULL DEFAULT '',
+  status       VARCHAR(20) NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending', 'approved', 'rejected')),
+  reviewed_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at  TIMESTAMPTZ,
+  review_note  VARCHAR(300) NOT NULL DEFAULT '',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_delreq_branch ON student_delete_requests(branch_id);
+CREATE INDEX IF NOT EXISTS idx_delreq_status ON student_delete_requests(status);

@@ -2,7 +2,7 @@
 // Thu phí: ghi nhận khoản thu linh động + tổng quan doanh thu theo nhóm.
 const express = require("express");
 const db = require("../db");
-const { requireAuth } = require("../auth");
+const { requireAuth, requireRole } = require("../auth");
 const { accessibleClassIds, classIdCondition, assertClassAccess, studentClassId, isoDate } = require("../helpers");
 
 const router = express.Router();
@@ -102,8 +102,8 @@ router.delete("/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-// Tổng quan doanh thu theo nhóm
-router.get("/revenue/summary", async (req, res) => {
+// Tổng quan doanh thu theo nhóm (chỉ admin)
+router.get("/revenue/summary", requireRole("admin"), async (req, res) => {
   const { branch_id, from, to } = req.query;
   const conds = [], vals = [];
   if (branch_id) { conds.push(`branch_id = $${vals.length + 1}`); vals.push(Number(branch_id)); }

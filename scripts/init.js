@@ -11,6 +11,12 @@ const { getPool } = require("../src/db");
   await pool.query(schema);
   console.log("[init] schema OK");
 
+  // Mở rộng vai trò users thêm 'student' cho DB đã tạo từ trước
+  // (pg-mem trong test không chạy được DO block nên làm bằng JS tại đây)
+  await pool.query("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check");
+  await pool.query("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin','coach','student'))");
+  console.log("[init] users role check OK");
+
   const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM branches");
   if (rows[0].n === 0) {
     const seed = fs.readFileSync(path.join(__dirname, "..", "seed.sql"), "utf8");

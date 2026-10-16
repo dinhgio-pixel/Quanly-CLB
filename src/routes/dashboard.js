@@ -23,8 +23,8 @@ router.get("/", async (req, res) => {
     if (branchId) where += ` AND s.branch_id = ${bParam(vals)}`;
     if (ids) where += ` AND ${classIdCondition(ids, "s.class_id")}`;
     const tot = await db.query(
-      `SELECT COUNT(*) FILTER (WHERE s.status = 'active')::int AS students,
-              COUNT(*) FILTER (WHERE s.status = 'paused')::int AS paused
+      `SELECT SUM(CASE WHEN s.status = 'active' THEN 1 ELSE 0 END)::int AS students,
+              SUM(CASE WHEN s.status = 'paused' THEN 1 ELSE 0 END)::int AS paused
        FROM students s ${where}`, vals
     );
 
@@ -51,16 +51,19 @@ router.get("/", async (req, res) => {
       else if (fs === "overdue" || fs === "unpaid") overdue.push(s);
     }
 
-    // --- Doanh thu tháng này theo nhóm ---
-    vals = [firstOfMonth];
-    where = "paid_on >= $1";
-    if (branchId) { vals.push(branchId); where += ` AND branch_id = $${vals.length}`; }
-    const rev = await db.query(
-      `SELECT category, COALESCE(SUM(amount),0)::int AS total FROM payments
-       WHERE ${where} GROUP BY category`, vals
-    );
-    const revenue = { tuition: 0, private: 0, rental: 0, performance: 0, other: 0 };
-    for (const r of rev.rows) if (revenue[r.category] !== undefined) revenue[r.category] = r.total;
+    // --- Doanh thu tháng này theo nhóm (chỉ admin được xem) ---
+    let revenue = null;
+    if (req.user.role === "admin") {
+      vals = [firstOfMonth];
+      where = "paid_on >= $1";
+      if (branchId) { vals.push(branchId); where += ` AND branch_id = $${vals.length}`; }
+      const rev = await db.query(
+        `SELECT category, COALESCE(SUM(amount),0)::int AS total FROM payments
+         WHERE ${where} GROUP BY category`, vals
+      );
+      revenue = { tuition: 0, private: 0, rental: 0, performance: 0, other: 0 };
+      for (const r of rev.rows) if (revenue[r.category] !== undefined) revenue[r.category] = r.total;
+    }
 
     // --- Buổi điểm danh hôm nay ---
     vals = [today];

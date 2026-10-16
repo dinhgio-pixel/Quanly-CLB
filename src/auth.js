@@ -40,7 +40,7 @@ async function requireAuth(req, res, next) {
     if (!token) return res.status(401).json({ error: "Chưa đăng nhập" });
     const payload = jwt.verify(token, getSecret());
     const { rows } = await db.query(
-      "SELECT id, username, role, full_name, status FROM users WHERE id = $1",
+      "SELECT id, username, role, full_name, status, student_id FROM users WHERE id = $1",
       [payload.id]
     );
     const u = rows[0];
