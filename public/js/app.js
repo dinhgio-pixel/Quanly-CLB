@@ -59,6 +59,49 @@ function logout() {
   location.hash = "#/login";
 }
 
+/* ----- tự động đăng xuất sau 30 phút không hoạt động ----- */
+const IDLE_LIMIT = 30 * 60 * 1000;      // 30 phút
+const IDLE_WARN_BEFORE = 2 * 60 * 1000; // cảnh báo trước 2 phút
+let idleTimer = null, idleWarnTimer = null, lastIdleReset = 0;
+function resetIdle() {
+  if (!S.token) return;
+  clearTimeout(idleTimer); clearTimeout(idleWarnTimer);
+  const w = document.getElementById("idleWarn");
+  if (w) w.style.display = "none";
+  idleWarnTimer = setTimeout(showIdleWarn, IDLE_LIMIT - IDLE_WARN_BEFORE);
+  idleTimer = setTimeout(doIdleLogout, IDLE_LIMIT);
+}
+function showIdleWarn() {
+  if (!S.token) return;
+  let w = document.getElementById("idleWarn");
+  if (!w) {
+    w = document.createElement("div");
+    w.id = "idleWarn";
+    w.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#fff7e6;color:#7a4d00;padding:.6rem 1rem;text-align:center;font-size:.95rem;border-bottom:2px solid #f0b429;display:none";
+    w.innerHTML = `⏳ Bạn đã không hoạt động gần 30 phút — hệ thống sẽ tự đăng xuất sau 2 phút nữa. <button class="btn small" style="margin-left:.5rem" onclick="resetIdle()">Tôi vẫn đang làm việc</button>`;
+    document.body.prepend(w);
+  }
+  w.style.display = "";
+}
+function doIdleLogout() {
+  if (!S.token) return;
+  clearTimeout(idleTimer); clearTimeout(idleWarnTimer);
+  const w = document.getElementById("idleWarn");
+  if (w) w.style.display = "none";
+  logout();
+  toast("Đã tự động đăng xuất do không hoạt động 30 phút");
+}
+function watchIdle() {
+  const onAct = () => {
+    const now = Date.now();
+    if (now - lastIdleReset < 2000) return; // chống spam sự kiện chuột
+    lastIdleReset = now;
+    resetIdle();
+  };
+  ["click", "keydown", "scroll", "touchstart", "mousemove"].forEach((ev) =>
+    document.addEventListener(ev, onAct, { passive: true }));
+}
+
 /* ---------- shell ---------- */
 const NAV = [
   ["#/dashboard", "📊", "Tổng quan"],
@@ -114,6 +157,7 @@ async function boot() {
   $("#sidenav").classList.remove("hidden");
   renderNav(); renderBranchSel();
   if (isStudent()) $("#branchSel").style.display = "none";
+  resetIdle(); // bắt đầu đếm 30 phút không hoạt động
   await refreshLookups();
   route();
 }
@@ -1265,4 +1309,5 @@ async function route() {
 
 window.addEventListener("hashchange", route);
 if (!location.hash) location.hash = "#/dashboard";
+watchIdle(); // theo dõi hoạt động để tự đăng xuất khi không dùng
 route();
