@@ -125,14 +125,8 @@ router.post("/", async (req, res) => {
     [Number(branch_id), sid, category, Math.round(Number(amount)), paid_on,
      paid_through || null, (note || "").trim(), req.user.id]
   );
-  // Nếu là học phí lớp và có ngày đóng đến -> cập nhật luôn cho HV (lấy ngày xa nhất)
-  if (sid && category === "tuition" && paid_through) {
-    const cur = await db.query("SELECT paid_through FROM students WHERE id = $1", [sid]);
-    const curPt = isoDate(cur.rows[0] && cur.rows[0].paid_through);
-    if (!curPt || paid_through > curPt) {
-      await db.query("UPDATE students SET paid_through = $1 WHERE id = $2", [paid_through, sid]);
-    }
-  }
+  // Nếu là học phí lớp -> tính lại "HP đến ngày" cho HV
+  if (sid && category === "tuition") await recalcPaidThrough(sid);
   res.status(201).json(rows[0]);
 });
 
@@ -156,18 +150,34 @@ router.put("/:id", async (req, res) => {
   const { rows } = await db.query(
     `UPDATE payments SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING *`, vals
   );
+  if (pay.student_id) await recalcPaidThrough(pay.student_id);
   res.json(rows[0]);
 });
 
 router.delete("/:id", async (req, res) => {
-  const cur = await db.query("SELECT created_by FROM payments WHERE id = $1", [req.params.id]);
+  const cur = await db.query("SELECT id, student_id, created_by FROM payments WHERE id = $1", [req.params.id]);
   if (!cur.rows[0]) return res.status(404).json({ error: "Không tìm thấy khoản thu" });
   if (req.user.role !== "admin" && cur.rows[0].created_by !== req.user.id) {
     return res.status(403).json({ error: "Không có quyền xóa khoản thu này" });
   }
+  const sid = cur.rows[0].student_id;
   await db.query("DELETE FROM payments WHERE id = $1", [req.params.id]);
+  if (sid) await recalcPaidThrough(sid);
   res.json({ ok: true });
 });
+
+// Tính lại "HP đến ngày" của HV từ các khoản học phí còn lại
+async function recalcPaidThrough(sid) {
+  const r = await db.query(
+    `SELECT paid_on, paid_through FROM payments WHERE student_id = $1 AND category = 'tuition'`, [sid]
+  );
+  let pt = null;
+  for (const p of r.rows) {
+    const d = isoDate(p.paid_through) || isoDate(p.paid_on);
+    if (d && (!pt || d > pt)) pt = d;
+  }
+  await db.query("UPDATE students SET paid_through = $1 WHERE id = $2", [pt, sid]);
+}
 
 // Tổng quan doanh thu theo nhóm (chỉ admin)
 router.get("/revenue/summary", requireRole("admin"), async (req, res) => {

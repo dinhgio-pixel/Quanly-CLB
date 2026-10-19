@@ -596,9 +596,10 @@ async function vStudentDetail(id, yr) {
       }).join("")}</tr>
       </table></div></div>
     ${isAdmin() ? `<div class="card"><h3>Lịch sử thu phí</h3>
-      ${s.payments.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Nhóm</th><th>Số tiền</th><th>Đến ngày</th><th>Ghi chú</th></tr>
+      ${s.payments.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Nhóm</th><th>Số tiền</th><th>Đến ngày</th><th>Ghi chú</th><th></th></tr>
       ${s.payments.map((p) => `<tr><td>${fmtDate(p.paid_on)}</td><td>${CAT_LABEL[p.category] || p.category}</td>
-      <td><b>${fmtVND(p.amount)}</b></td><td>${fmtDate(p.paid_through)}</td><td class="muted">${esc(p.note || "")}</td></tr>`).join("")}</table></div>`
+      <td><b>${fmtVND(p.amount)}</b></td><td>${fmtDate(p.paid_through)}</td><td class="muted">${esc(p.note || "")}</td>
+      <td><div class="btnrow" style="margin:0"><button class="btn small ghost" onclick="payEdit(${p.id},${s.id})">Sửa</button><button class="btn small danger" onclick="payDel(${p.id},${s.id})">Xóa</button></div></td></tr>`).join("")}</table></div>`
       : `<p class="muted">Chưa có khoản thu nào.</p>`}</div>` : ""}`;
 }
 // Admin bấm vào ô tháng trong bảng thu phí năm để đánh dấu đã đóng / bỏ đánh dấu
@@ -608,6 +609,34 @@ window.toggleFeeMonth = async (sid, year, month, paid) => {
     toast(paid ? `Đã đánh dấu đóng T${month}/${year}` : `Đã bỏ đánh dấu T${month}/${year}`);
     vStudentDetail(sid, year);
   } catch (err) { toast(err.message); }
+};
+// Sửa / xóa khoản thu trong Lịch sử thu phí (admin)
+window.payDel = async (pid, sid) => {
+  if (!await confirmDlg("Xóa khoản thu này? Học phí của học viên sẽ được tính lại.")) return;
+  try { await api("DELETE", "/payments/" + pid); toast("Đã xóa"); vStudentDetail(sid); }
+  catch (err) { toast(err.message); }
+};
+window.payEdit = async (pid, sid) => {
+  const pays = await api("GET", `/payments?student_id=${sid}`).catch(() => []);
+  const p = pays.find((x) => x.id === pid);
+  if (!p) { toast("Không tìm thấy khoản thu"); return; }
+  const d = (v) => v ? String(v).slice(0, 10) : "";
+  openModal(`<h3>Sửa khoản thu</h3><form id="f">
+    <label>Nhóm khoản thu</label><select name="category">
+    ${Object.keys(CAT_LABEL).map((k) => `<option value="${k}" ${p.category === k ? "selected" : ""}>${CAT_LABEL[k]}</option>`).join("")}</select>
+    <label>Số tiền (đ)</label><input name="amount" type="number" min="1" value="${p.amount}" required>
+    <label>Ngày thu</label><input name="paid_on" type="date" value="${d(p.paid_on)}" required>
+    <label>HP đóng đến ngày (nếu là học phí)</label><input name="paid_through" type="date" value="${d(p.paid_through)}">
+    <label>Ghi chú</label><input name="note" value="${esc(p.note || "")}">
+    <div class="btnrow"><button class="btn">Lưu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    try {
+      await api("PUT", "/payments/" + pid, { category: fd.get("category"), amount: fd.get("amount"),
+        paid_on: fd.get("paid_on"), paid_through: fd.get("paid_through") || null, note: fd.get("note") });
+      closeModal(); toast("Đã lưu"); vStudentDetail(sid);
+    } catch (err) { toast(err.message); }
+  };
 };
 // Tính các tháng đã đóng trong năm từ lịch sử thu phí
 function yearFeeCells(s, yr) {
