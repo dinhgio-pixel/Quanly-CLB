@@ -67,6 +67,7 @@ const NAV = [
   ["#/teaching-logs", "📝", "Nhật ký dạy"],
   ["#/timesheets", "⏱️", "Chấm công"],
   ["#/shift-swaps", "🔄", "Đổi ca"],
+  ["#/directory", "🔍", "Tra cứu"],
   ["#/fees", "💰", "Thu phí"],
   ["#/former-students", "🗂️", "Học viên cũ", true],
   ["#/packages", "📦", "Gói học", true],
@@ -910,6 +911,56 @@ window.shiftCancel = async (id) => {
   try { await api("DELETE", "/shift-swaps/" + id); toast("Đã hủy"); route(); } catch (err) { toast(err.message); }
 };
 
+/* ----- tra cứu lớp/CLB (chỉ xem) ----- */
+async function vDirectory() {
+  V.innerHTML = pageHead("Tra cứu lớp & CLB") +
+    `<div class="card"><div class="row"><select id="dBranch" style="width:auto">
+      ${S.branches.map((b) => `<option value="${b.id}" ${b.id === S.branchId ? "selected" : ""}>${esc(b.name)}</option>`).join("")}</select>
+      <button class="btn" onclick="loadDirectory()">Xem</button></div>
+      <p class="muted">Xem thông tin các lớp và CLB khác (chế độ chỉ đọc). Danh sách học viên chỉ hiện họ tên và cấp đai.</p></div>
+    <div id="dirBody"><p class="muted">Đang tải...</p></div>`;
+  loadDirectory();
+}
+window.loadDirectory = async () => {
+  const bid = $("#dBranch").value;
+  try {
+    const [classes, allStudents] = await Promise.all([
+      api("GET", `/directory/classes?branch_id=${bid}`),
+      api("GET", `/directory/branches/${bid}/students`),
+    ]);
+    const byClass = {};
+    for (const s of allStudents) { (byClass[s.class_name || "—"] = byClass[s.class_name || "—"] || []).push(s); }
+    $("#dirBody").innerHTML = `
+    <div class="card"><h3>🏫 Các lớp (${classes.length})</h3>
+      ${classes.length ? `<div class="tbl-wrap"><table><tr><th>Lớp</th><th>CLB</th><th>Lịch</th><th>HLV đứng lớp</th><th>HV</th><th></th></tr>
+      ${classes.map((c) => `<tr><td><b>${esc(c.name)}</b>${c.status !== "active" ? ` <span class="muted">(tạm ngưng)</span>` : ""}</td>
+        <td>${esc(c.branch_name)}</td><td class="muted">${esc(c.schedule || "—")}</td>
+        <td>${c.coaches.map(esc).join(", ") || `<span class="muted">—</span>`}</td>
+        <td>${c.active_students}</td>
+        <td><button class="btn small ghost" id="dbtn-${c.id}" onclick="dirStudents(${c.id},'dbtn-${c.id}')">👥 DS học viên</button></td></tr>
+        <tr id="drow-${c.id}" style="display:none"><td colspan="6"><div id="dlist-${c.id}"></div></td></tr>`).join("")}</table></div>`
+      : `<p class="muted">Chưa có lớp nào.</p>`}</div>
+    <div class="card"><h3>🧑‍🎓 Học viên toàn CLB (${allStudents.length})</h3>
+      ${allStudents.length ? `<div class="tbl-wrap"><table><tr><th>Họ tên</th><th>Cấp đai</th><th>Lớp</th></tr>
+      ${allStudents.map((s) => `<tr><td><b>${esc(s.full_name)}</b></td><td>🥋 ${esc(s.belt_level || "—")}</td><td class="muted">${esc(s.class_name || "—")}</td></tr>`).join("")}</table></div>`
+      : `<p class="muted">Chưa có học viên.</p>`}</div>`;
+  } catch (err) {
+    $("#dirBody").innerHTML = `<div class="card"><p style="color:var(--bad)">${esc(err.message)}</p></div>`;
+  }
+};
+window.dirStudents = async (cid, btnId) => {
+  const row = $("#drow-" + cid), box = $("#dlist-" + cid), btn = $("#" + btnId);
+  if (row.style.display !== "none") { row.style.display = "none"; btn.textContent = "👥 DS học viên"; return; }
+  btn.textContent = "Đang tải...";
+  try {
+    const list = await api("GET", `/directory/classes/${cid}/students`);
+    box.innerHTML = list.length ? `<div class="tbl-wrap"><table><tr><th>Họ tên</th><th>Cấp đai</th></tr>
+      ${list.map((s) => `<tr><td>${esc(s.full_name)}</td><td>🥋 ${esc(s.belt_level || "—")}</td></tr>`).join("")}</table></div>`
+      : `<p class="muted">Lớp chưa có học viên đang học.</p>`;
+    row.style.display = ""; btn.textContent = "🔼 Thu gọn";
+  } catch (err) { btn.textContent = "👥 DS học viên"; toast(err.message); }
+};
+
 /* ----- fees ----- */
 async function vFees() {
   V.innerHTML = pageHead("Thu phí", `<button class="btn" onclick="payFor()">+ Ghi nhận thu</button>`) + `<div id="feeBody"><p class="muted">Đang tải...</p></div>`;
@@ -1055,6 +1106,7 @@ async function route() {
     else if (seg[0] === "teaching-logs") await vTeachingLogs();
     else if (seg[0] === "timesheets") await vTimesheets();
     else if (seg[0] === "shift-swaps") await vShiftSwaps();
+    else if (seg[0] === "directory") await vDirectory();
     else if (seg[0] === "fees") await vFees();
     else if (seg[0] === "users") await vUsers();
     else await vDashboard();
