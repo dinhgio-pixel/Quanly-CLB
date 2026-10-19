@@ -19,6 +19,7 @@ const fmtVND = (n) => (Number(n) || 0).toLocaleString("vi-VN") + "đ";
 const fmtDate = (d) => { if (!d) return "—"; const x = String(d).slice(0, 10).split("-"); return x.length === 3 ? `${x[2]}/${x[1]}/${x[0]}` : d; };
 const todayInput = () => new Date().toISOString().slice(0, 10);
 const isAdmin = () => S.user && S.user.role === "admin";
+const isCoach = () => S.user && S.user.role === "coach";
 const isStudent = () => S.user && S.user.role === "student";
 const roleLabel = (r) => r === "admin" ? "Quản trị viên" : r === "student" ? "Học viên" : "Huấn luyện viên";
 
@@ -69,6 +70,7 @@ const NAV = [
   ["#/shift-swaps", "🔄", "Đổi ca"],
   ["#/directory", "🔍", "Tra cứu"],
   ["#/fees", "💰", "Thu phí"],
+  ["#/profile", "👤", "Hồ sơ", false, "coach"],
   ["#/former-students", "🗂️", "Học viên cũ", true],
   ["#/packages", "📦", "Gói học", true],
   ["#/branches", "🏢", "Chi nhánh", true],
@@ -78,8 +80,8 @@ const NAV = [
 function renderNav() {
   const nav = $("#sidenav");
   const items = isStudent()
-    ? [["#/dashboard", "📊", "Tổng quan"], ["#/curriculum", "📚", "Chương trình học"]]
-    : NAV.filter((n) => !n[3] || isAdmin());
+    ? [["#/dashboard", "📊", "Tổng quan"], ["#/classes", "🏫", "Lớp học"], ["#/curriculum", "📚", "Chương trình học"]]
+    : NAV.filter((n) => (!n[3] || isAdmin()) && (!n[4] || S.user.role === n[4]));
   nav.innerHTML = `<div class="nav-user">👤 ${esc(S.user.full_name || S.user.username)}<br><span class="muted">${roleLabel(S.user.role)}</span></div>` +
     items.map((n) =>
       `<a href="${n[0]}" data-nav="${n[0]}">${n[1]} ${n[2]}</a>`).join("");
@@ -169,7 +171,11 @@ async function vStudentDash() {
   try {
     const s = await api("GET", "/students/me");
     const a = s.attendance || { total: 0, present: 0, rate: null };
-    V.innerHTML = pageHead(`Chào ${esc(s.full_name)} 👋`) + `
+    // Nhắc nhở khi nghỉ từ 3 buổi không phép trong 30 ngày gần nhất
+    const absentWarn = (a.absent_30d || 0) >= 3
+      ? `<div class="card" style="border-left:4px solid var(--warn)"><b>⚠️ Nhắc nhở:</b> bạn đã nghỉ <b>${a.absent_30d} buổi</b> trong 30 ngày gần đây. Hãy cố gắng đi tập đều đặn để không bị gián đoạn chương trình nhé!</div>`
+      : "";
+    V.innerHTML = pageHead(`Chào ${esc(s.full_name)} 👋`) + absentWarn + `
     <div class="grid kpi">
       <div class="card"><div class="num">${a.total || 0}</div><div class="lbl">Buổi đã điểm danh</div></div>
       <div class="card"><div class="num" style="color:var(--ok)">${a.rate === null ? "—" : a.rate + "%"}</div><div class="lbl">Chuyên cần</div></div>
@@ -308,7 +314,7 @@ async function vClasses() {
     S.classes.map((c) => `<div class="card"><h3><a href="#/classes/${c.id}">${esc(c.name)}</a></h3>
       <div class="muted">${esc(c.schedule)}${c.room ? " · " + esc(c.room) : ""}</div>
       <div class="row spread" style="margin-top:.5rem"><span>${c.active_students} HV đang học</span>
-      <b>${fmtVND(c.monthly_fee)}</b></div>
+      ${isAdmin() ? `<b>${fmtVND(c.monthly_fee)}</b>` : ""}</div>
       ${c.coaches ? `<div class="muted">HLV: ${esc(c.coaches)}</div>` : ""}</div>`).join("") + `</div>` +
     (S.classes.length ? "" : `<p class="muted">Chưa có lớp nào.</p>`);
 }
@@ -344,17 +350,19 @@ async function vClassDetail(id, tab) {
   if (isAdmin()) TABS.push(["coach", "👥 HLV"]);
   let body = `<div class="tabs">${TABS.map((t) => `<button class="${tab === t[0] ? "active" : ""}" onclick="location.hash='#/classes/${id}/${t[0]}'">${t[1]}</button>`).join("")}</div><div id="tabBody"><p class="muted">Đang tải...</p></div>`;
   V.innerHTML = pageHead(c.name, isAdmin() ? `<button class="btn ghost" onclick="classForm(${c.id})">Sửa lớp</button>` : "") +
-    `<p class="muted">${esc(c.schedule)}${c.room ? " · " + esc(c.room) : ""} · ${fmtVND(c.monthly_fee)}/tháng</p>` + body;
+    `<p class="muted">${esc(c.schedule)}${c.room ? " · " + esc(c.room) : ""}${isAdmin() ? ` · ${fmtVND(c.monthly_fee)}/tháng` : ""}</p>` + body;
   const el = $("#tabBody");
   if (tab === "students") {
     const list = await api("GET", `/students?class_id=${id}`);
     el.innerHTML = `<div class="row spread"><b>${list.length} học viên</b><div class="btnrow" style="margin:0">
       <button class="btn small ghost" onclick="exportStudents(${id})">⬇ Xuất Excel</button>
       <button class="btn small" onclick="studentForm(null,${id})">+ Thêm HV</button></div></div>
-    <div class="tbl-wrap"><table><tr><th>Họ tên</th><th>Cấp đai</th><th>Gói</th><th>HP đến ngày</th><th>Trạng thái</th></tr>
+    <div class="tbl-wrap"><table><tr><th>Họ tên</th><th>Cấp đai</th><th>Gói</th><th>HP đến ngày</th><th>Vắng 30N</th><th>Trạng thái</th></tr>
     ${list.map((s) => `<tr class="clickable" onclick="location.hash='#/students/${s.id}'"><td><b>${esc(s.full_name)}</b><br><span class="muted">${esc(s.phone || "")}</span></td>
       <td>🥋 ${esc(s.belt_level || "—")}</td>
-      <td class="muted">${esc(s.package_name || "—")}</td><td>${fmtDate(s.paid_through)}</td><td>${feeBadge(s.fee_state)}</td></tr>`).join("")}</table></div>`;
+      <td class="muted">${esc(s.package_name || "—")}</td><td>${fmtDate(s.paid_through)}</td>
+      <td>${(s.absent_30d || 0) >= 3 ? `<b style="color:var(--bad)">⚠️ ${s.absent_30d}</b>` : (s.absent_30d || 0)}</td>
+      <td>${feeBadge(s.fee_state)}</td></tr>`).join("")}</table></div>`;
   } else if (tab === "attendance") {
     el.innerHTML = `<div class="row"><input type="date" id="attDate" value="${todayInput()}" style="width:auto">
       <button class="btn" onclick="takeAttendance(${id})">Điểm danh</button>
@@ -383,10 +391,11 @@ async function vClassDetail(id, tab) {
       <div class="card"><div class="num" style="color:var(--bad)">${(sm.overdue || 0) + (sm.unpaid || 0)}</div><div class="lbl">Chưa/chậm đóng</div></div>
       <div class="card"><div class="num" style="color:var(--warn)">${sm.due_soon || 0}</div><div class="lbl">Sắp hết hạn</div></div>
       <div class="card"><div class="num" style="color:var(--muted)">${(sm.paused || 0) + (sm.stopped || 0)}</div><div class="lbl">Tạm dừng/Dừng</div></div></div>
-      <div class="tbl-wrap"><table><tr><th>Học viên</th><th>Gói</th><th>HP đến ngày</th><th>Trạng thái</th><th></th></tr>
-      ${ov.students.map((s) => `<tr><td><b>${esc(s.full_name)}</b></td><td class="muted">${esc(s.package_name || "—")}<br>${fmtVND(s.package_fee || 0)}</td>
+      <div class="tbl-wrap"><table><tr><th>Học viên</th><th>Gói</th><th>HP đến ngày</th><th>Trạng thái</th>${isAdmin() ? "<th></th>" : ""}</tr>
+      ${ov.students.map((s) => `<tr><td><b>${esc(s.full_name)}</b></td>
+      <td class="muted">${esc(s.package_name || "—")}<br>${isAdmin() ? fmtVND(s.package_fee || 0) : (s.package_sessions ? s.package_sessions + " buổi/tuần" : "—")}</td>
       <td>${fmtDate(s.paid_through)}</td><td>${feeBadge(s.fee_state)}</td>
-      <td>${["paid"].includes(s.fee_state) ? "" : `<button class="btn small" onclick="payFor(${s.id},${id})">Thu phí</button>`}</td></tr>`).join("")}</table></div>`;
+      ${isAdmin() ? `<td>${["paid"].includes(s.fee_state) ? "" : `<button class="btn small" onclick="payFor(${s.id},${id})">Thu phí</button>`}</td>` : ""}</tr>`).join("")}</table></div>`;
   } else if (tab === "coach" && isAdmin()) {
     try {
       const assigned = await api("GET", "/users");
@@ -479,7 +488,7 @@ window.studentForm = async (id, presetClass) => {
   const s = id ? await api("GET", "/students/" + id) : {};
   const clsOpts = S.classes.map((c) => `<option value="${c.id}" ${(s.class_id || presetClass) == c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("");
   const pkgOpts = `<option value="">—</option>` + S.packages.filter((p) => p.status === "active").map((p) =>
-    `<option value="${p.id}" ${s.package_id == p.id ? "selected" : ""}>${esc(p.name)} (${fmtVND(p.monthly_fee)})</option>`).join("");
+    `<option value="${p.id}" ${s.package_id == p.id ? "selected" : ""}>${esc(p.name)}${isAdmin() ? ` (${fmtVND(p.monthly_fee)})` : (p.sessions_per_week ? ` (${p.sessions_per_week} buổi/tuần)` : "")}</option>`).join("");
   openModal(`<h3>${id ? "Sửa" : "Thêm"} học viên</h3><form id="f">
     <div class="grid" style="grid-template-columns:1fr 1fr;gap:.4rem .6rem">
     <div><label>Họ tên *</label><input name="full_name" value="${esc(s.full_name || "")}" required></div>
@@ -548,7 +557,7 @@ async function vStudentDetail(id, yr) {
     <div class="card"><h3>Thông tin</h3>
       <table>
       <tr><td class="muted">Lớp</td><td><b>${esc(s.class_name || "—")}</b></td></tr>
-      <tr><td class="muted">Gói</td><td>${esc(s.package_name || "—")} ${s.package_fee ? "(" + fmtVND(s.package_fee) + ")" : ""}</td></tr>
+      <tr><td class="muted">Gói</td><td>${esc(s.package_name || "—")}${isAdmin() ? (s.package_fee ? " (" + fmtVND(s.package_fee) + ")" : "") : (s.package_sessions ? " (" + s.package_sessions + " buổi/tuần)" : "")}</td></tr>
       <tr><td class="muted">Cấp đai hiện tại</td><td><b>🥋 ${esc(s.belt_level || "—")}</b></td></tr>
       <tr><td class="muted">Ngày sinh</td><td>${fmtDate(s.dob)}</td></tr>
       <tr><td class="muted">SĐT phụ huynh</td><td>${esc(s.phone || "—")}</td></tr>
@@ -562,19 +571,32 @@ async function vStudentDetail(id, yr) {
       <tr><td class="muted">Cân nặng</td><td>${s.weight_kg ? s.weight_kg + " kg" : "—"}</td></tr>
       </table>
       <p>${esc(s.health_note || "Chưa có lưu ý sức khỏe.")}</p>
-      <div class="btnrow"><button class="btn small" onclick="payFor(${s.id})">Thu học phí</button></div></div>
+      ${isAdmin() ? `<div class="btnrow"><button class="btn small" onclick="payFor(${s.id})">Thu học phí</button></div>` : ""}</div>
     </div>
     <div class="card"><h3>📅 Thu phí năm <input type="number" id="feeYear" value="${year}" min="2020" max="2100" style="width:5.5rem" onchange="vStudentDetail(${s.id}, this.value)">
-      <span class="muted" style="font-weight:normal">✓ = đã đóng</span></h3>
+      <span class="muted" style="font-weight:normal">✓ = đã đóng${isAdmin() ? " · bấm vào ô để đánh dấu" : ""}</span></h3>
       <div class="tbl-wrap"><table><tr>${Array.from({ length: 12 }, (_, i) => `<th style="text-align:center">T${i + 1}</th>`).join("")}</tr>
-      <tr>${yearFeeCells(s, year).map((c) => `<td style="text-align:center" title="${esc(c.title || "")}">${c.paid ? `<b style="color:var(--ok)">✓</b>` : `<span class="muted">—</span>`}</td>`).join("")}</tr>
+      <tr>${yearFeeCells(s, year).map((c, i) => {
+        const inner = c.paid ? `<b style="color:var(--ok)">✓</b>` : `<span class="muted">—</span>`;
+        return isAdmin()
+          ? `<td style="text-align:center;cursor:pointer" title="Bấm để ${c.paid ? "bỏ đánh dấu" : "đánh dấu đã đóng"}${c.title ? " — " + esc(c.title) : ""}" onclick="toggleFeeMonth(${s.id},'${year}',${i + 1},${!c.paid})">${inner}</td>`
+          : `<td style="text-align:center" title="${esc(c.title || "")}">${inner}</td>`;
+      }).join("")}</tr>
       </table></div></div>
-    <div class="card"><h3>Lịch sử thu phí</h3>
+    ${isAdmin() ? `<div class="card"><h3>Lịch sử thu phí</h3>
       ${s.payments.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Nhóm</th><th>Số tiền</th><th>Đến ngày</th><th>Ghi chú</th></tr>
       ${s.payments.map((p) => `<tr><td>${fmtDate(p.paid_on)}</td><td>${CAT_LABEL[p.category] || p.category}</td>
       <td><b>${fmtVND(p.amount)}</b></td><td>${fmtDate(p.paid_through)}</td><td class="muted">${esc(p.note || "")}</td></tr>`).join("")}</table></div>`
-      : `<p class="muted">Chưa có khoản thu nào.</p>`}</div>`;
+      : `<p class="muted">Chưa có khoản thu nào.</p>`}</div>` : ""}`;
 }
+// Admin bấm vào ô tháng trong bảng thu phí năm để đánh dấu đã đóng / bỏ đánh dấu
+window.toggleFeeMonth = async (sid, year, month, paid) => {
+  try {
+    await api("POST", "/payments/fee-month", { student_id: sid, year: Number(year), month, paid });
+    toast(paid ? `Đã đánh dấu đóng T${month}/${year}` : `Đã bỏ đánh dấu T${month}/${year}`);
+    vStudentDetail(sid, year);
+  } catch (err) { toast(err.message); }
+};
 // Tính các tháng đã đóng trong năm từ lịch sử thu phí
 function yearFeeCells(s, yr) {
   const cells = Array.from({ length: 12 }, () => ({ paid: false, title: "" }));
@@ -588,7 +610,8 @@ function yearFeeCells(s, yr) {
     while ((y < y2 || (y === y2 && m <= m2)) && guard++ < 36) {
       if (String(y) === String(yr) && m >= 1 && m <= 12) {
         cells[m - 1].paid = true;
-        cells[m - 1].title = (cells[m - 1].title ? cells[m - 1].title + "; " : "") + fmtVND(p.amount) + " (" + fmtDate(p.paid_on) + ")";
+        const amt = p.amount ? fmtVND(p.amount) + " " : "";
+        cells[m - 1].title = (cells[m - 1].title ? cells[m - 1].title + "; " : "") + amt + "(" + fmtDate(p.paid_on) + ")";
       }
       m++; if (m > 12) { m = 1; y++; }
     }
@@ -961,9 +984,60 @@ window.dirStudents = async (cid, btnId) => {
   } catch (err) { btn.textContent = "👥 DS học viên"; toast(err.message); }
 };
 
+/* ----- hồ sơ HLV (sửa thông tin -> gửi admin duyệt) ----- */
+async function vProfile() {
+  if (!isCoach()) { location.hash = "#/dashboard"; return; }
+  V.innerHTML = `<p class="muted">Đang tải...</p>`;
+  const me = await api("GET", "/profile/me");
+  const pend = me.pending_request;
+  V.innerHTML = pageHead("Hồ sơ của tôi") +
+    `<div class="card"><h3>👤 ${esc(me.full_name || me.username)}</h3>
+    <table>
+    <tr><td class="muted">Tên đăng nhập</td><td><b>${esc(me.username)}</b></td></tr>
+    <tr><td class="muted">Họ tên</td><td>${esc(me.full_name || "—")}</td></tr>
+    <tr><td class="muted">Cấp đai</td><td>🥋 ${esc(me.belt_level || "—")}</td></tr>
+    <tr><td class="muted">SĐT</td><td>${esc(me.phone || "—")}</td></tr>
+    <tr><td class="muted">Vai trò</td><td>${roleLabel(me.role)}</td></tr>
+    </table>
+    <div class="btnrow"><button class="btn" onclick="profileForm()">✏️ Sửa thông tin</button></div></div>` +
+    (pend ? `<div class="card"><h3>⏳ Đang chờ duyệt</h3>
+    <p class="muted">Yêu cầu sửa hồ sơ bạn gửi lúc ${fmtDate((pend.created_at || "").slice(0, 10))} đang chờ quản trị viên duyệt.</p></div>` : "");
+}
+window.profileForm = async () => {
+  const me = await api("GET", "/profile/me");
+  openModal(`<h3>Sửa hồ sơ</h3><form id="f">
+    <label>Họ tên</label><input name="full_name" value="${esc(me.full_name || "")}" required>
+    <label>Cấp đai</label><input name="belt_level" value="${esc(me.belt_level || "")}" placeholder="VD: Hoàng đai">
+    <label>SĐT</label><input name="phone" value="${esc(me.phone || "")}">
+    <p class="muted">Thông tin mới sẽ được gửi cho quản trị viên duyệt trước khi áp dụng.</p>
+    <div class="btnrow"><button class="btn">Gửi duyệt</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    try {
+      await api("POST", "/profile/request", { full_name: fd.get("full_name"), belt_level: fd.get("belt_level"), phone: fd.get("phone") });
+      closeModal(); toast("Đã gửi, chờ quản trị viên duyệt"); vProfile();
+    } catch (err) { toast(err.message); }
+  };
+};
+
+/* ----- lớp học (học viên xem tất cả lớp) ----- */
+async function vStudentClasses() {
+  V.innerHTML = `<p class="muted">Đang tải...</p>`;
+  const list = await api("GET", "/classes/catalog");
+  V.innerHTML = pageHead("Lớp học") +
+    `<p class="muted">Tất cả các lớp trên hệ thống (${list.length} lớp).</p>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">` +
+    list.map((c) => `<div class="card"><h3>${esc(c.name)}</h3>
+      <div class="muted">${esc(c.branch_name)} · ${esc(c.schedule || "—")}${c.room ? " · " + esc(c.room) : ""}</div>
+      <div class="row spread" style="margin-top:.5rem"><span>${c.active_students} HV đang học</span>
+      ${c.status !== "active" ? `<span class="muted">(tạm ngưng)</span>` : ""}</div>
+      ${c.coaches.length ? `<div class="muted">HLV: ${c.coaches.map((h) => `${esc(h.name)}${h.belt_level ? ` — 🥋 ${esc(h.belt_level)}` : ""}`).join("; ")}</div>` : ""}</div>`).join("") +
+    `</div>`;
+}
+
 /* ----- fees ----- */
 async function vFees() {
-  V.innerHTML = pageHead("Thu phí", `<button class="btn" onclick="payFor()">+ Ghi nhận thu</button>`) + `<div id="feeBody"><p class="muted">Đang tải...</p></div>`;
+  V.innerHTML = pageHead("Thu phí", isAdmin() ? `<button class="btn" onclick="payFor()">+ Ghi nhận thu</button>` : "") + `<div id="feeBody"><p class="muted">Đang tải...</p></div>`;
   const m = todayInput().slice(0, 7);
   // Tổng quan doanh thu chỉ dành cho admin (HLV không xem được)
   let revHtml = "";
@@ -980,9 +1054,9 @@ async function vFees() {
     <button class="btn small" onclick="location.hash='#/classes/${c.id}/fees'">Xem thu phí</button></div>`).join("")}</div>
   <div class="card"><h3>Khoản thu gần đây</h3><div id="payList"></div></div>`;
   const pays = await api("GET", `/payments?branch_id=${S.branchId}`);
-  $("#payList").innerHTML = pays.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Học viên / Nội dung</th><th>Nhóm</th><th style="text-align:right">Số tiền</th></tr>
+  $("#payList").innerHTML = pays.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Học viên / Nội dung</th><th>Nhóm</th>${isAdmin() ? `<th style="text-align:right">Số tiền</th>` : ""}</tr>
     ${pays.slice(0, 30).map((p) => `<tr><td>${fmtDate(p.paid_on)}</td><td>${esc(p.student_name || p.note || "—")}</td>
-    <td class="muted">${CAT_LABEL[p.category] || p.category}</td><td style="text-align:right"><b>${fmtVND(p.amount)}</b></td></tr>`).join("")}</table></div>`
+    <td class="muted">${CAT_LABEL[p.category] || p.category}</td>${isAdmin() ? `<td style="text-align:right"><b>${fmtVND(p.amount)}</b></td>` : ""}</tr>`).join("")}</table></div>`
     : `<p class="muted">Chưa có khoản thu nào.</p>`;
 }
 window.payFor = async (studentId, classId) => {
@@ -1013,15 +1087,38 @@ window.payFor = async (studentId, classId) => {
 async function vUsers() {
   if (!isAdmin()) { location.hash = "#/dashboard"; return; }
   const users = await api("GET", "/users");
-  V.innerHTML = pageHead("Tài khoản", `<button class="btn" onclick="userForm()">+ Thêm</button>`) +
-    `<div class="card"><div class="tbl-wrap"><table><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Lớp phụ trách</th><th>TT</th><th></th></tr>
+  const reqs = await api("GET", "/profile/requests").catch(() => []);
+  const FIELD_LABEL = { full_name: "Họ tên", belt_level: "Cấp đai", phone: "SĐT" };
+  const reqCard = reqs.length ? `<div class="card"><h3>📝 Yêu cầu sửa hồ sơ chờ duyệt (${reqs.length})</h3>
+    ${reqs.map((r) => `<div class="att-row"><div class="nm"><b>${esc(r.username)}</b> <span class="muted">(${esc(r.current_name || "")})</span><br>
+    ${Object.keys(r.changes || {}).map((k) => `<span class="muted">${FIELD_LABEL[k] || k}:</span> ${esc(r["current_" + (k === "full_name" ? "name" : k === "belt_level" ? "belt" : k)] || "—")} → <b>${esc(r.changes[k] || "—")}</b>`).join("<br>")}</div>
+    <div class="btnrow" style="margin:0"><button class="btn small ok" onclick="profileReqReview(${r.id},true)">Duyệt</button>
+    <button class="btn small danger" onclick="profileReqReview(${r.id},false)">Từ chối</button></div></div>`).join("")}</div>` : "";
+  V.innerHTML = pageHead("Tài khoản", `<button class="btn" onclick="userForm()">+ Thêm</button>`) + reqCard +
+    `<div class="card"><div class="tbl-wrap"><table><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Cấp đai</th><th>Vai trò</th><th>Lớp phụ trách</th><th>TT</th><th></th></tr>
     ${users.map((u) => `<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.full_name || "—")}${u.role === "student" && u.student_name ? `<br><span class="muted">HV: ${esc(u.student_name)}</span>` : ""}</td>
+      <td>${u.role === "coach" ? `🥋 ${esc(u.belt_level || "—")}` : `<span class="muted">—</span>`}</td>
       <td>${roleLabel(u.role)}</td>
       <td class="muted">${classIdsOf(u).map((cid) => esc(className(cid))).join(", ") || "—"}</td>
       <td>${u.status === "active" ? `<span class="badge b-active">Mở</span>` : `<span class="badge b-inactive">Khóa</span>`}</td>
       <td><button class="btn small ghost" onclick="userForm(${u.id})">Sửa</button></td></tr>`).join("")}</table></div>
       <p class="muted">Gán lớp cho HLV: vào Lớp học → mở lớp → tab HLV.</p></div>`;
 }
+window.profileReqReview = async (id, approve) => {
+  try {
+    if (approve) {
+      if (!await confirmDlg("Duyệt và áp dụng thay đổi hồ sơ này?")) return;
+      await api("PUT", `/profile/requests/${id}/approve`);
+      toast("Đã duyệt hồ sơ");
+    } else {
+      const note = window.prompt("Lý do từ chối (không bắt buộc):") || "";
+      if (note === null) return;
+      await api("PUT", `/profile/requests/${id}/reject`, { note });
+      toast("Đã từ chối");
+    }
+    vUsers();
+  } catch (err) { toast(err.message); }
+};
 window.userForm = async (id) => {
   const users = await api("GET", "/users");
   const u = id ? users.find((x) => x.id === id) : {};
@@ -1029,6 +1126,9 @@ window.userForm = async (id) => {
   openModal(`<h3>${id ? "Sửa" : "Thêm"} tài khoản</h3><form id="f">
     <label>Tên đăng nhập</label><input name="username" value="${esc(u.username || "")}" ${id ? "disabled" : "required"}>
     <label>Họ tên</label><input name="full_name" value="${esc(u.full_name || "")}">
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:.4rem .6rem">
+    <div><label>Cấp đai (HLV)</label><input name="belt_level" value="${esc(u.belt_level || "")}" placeholder="VD: Hoàng đai"></div>
+    <div><label>SĐT</label><input name="phone" value="${esc(u.phone || "")}"></div></div>
     <label>Mật khẩu ${id ? "(để trống nếu không đổi)" : ""}</label><input name="password" type="password" ${id ? "" : "required"}>
     <label>Vai trò</label><select name="role" id="uRole" onchange="document.getElementById('uStudentWrap').style.display=this.value==='student'?'':'none'">
       <option value="coach" ${u.role === "coach" ? "selected" : ""}>Huấn luyện viên</option>
@@ -1046,7 +1146,8 @@ window.userForm = async (id) => {
     ${id ? `<button type="button" class="btn danger" onclick="userDel(${id})">Xóa</button>` : ""}</div></form>`);
   $("#f").onsubmit = async (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
-    const body = { full_name: fd.get("full_name"), role: fd.get("role"), status: fd.get("status") };
+    const body = { full_name: fd.get("full_name"), role: fd.get("role"), status: fd.get("status"),
+      belt_level: fd.get("belt_level"), phone: fd.get("phone") };
     if (fd.get("role") === "student" && fd.get("student_id")) body.student_id = fd.get("student_id");
     if (fd.get("password")) body.password = fd.get("password");
     if (!id) body.username = fd.get("username");
@@ -1088,17 +1189,21 @@ async function route() {
   const [path] = h.split("?");
   const seg = path.replace("#/", "").split("/");
   try {
-    // Học viên chỉ được vào Tổng quan + Chương trình học
-    if (isStudent() && !["dashboard", "", "curriculum", "login"].includes(seg[0])) {
+    // Học viên chỉ được vào Tổng quan + Lớp học + Chương trình học
+    if (isStudent() && !["dashboard", "", "curriculum", "classes", "login"].includes(seg[0])) {
       location.hash = "#/dashboard"; return;
     }
     if (seg[0] === "login") vLogin();
     else if (seg[0] === "dashboard" || seg[0] === "") await vDashboard();
     else if (seg[0] === "curriculum") await vCurriculum();
+    else if (seg[0] === "profile") await vProfile();
     else if (seg[0] === "former-students") await vFormerStudents();
     else if (seg[0] === "branches") await vBranches();
-    else if (seg[0] === "classes" && seg[1]) await vClassDetail(seg[1], seg[2]);
-    else if (seg[0] === "classes") await vClasses();
+    else if (seg[0] === "classes" && seg[1]) {
+      if (isStudent()) { location.hash = "#/classes"; return; }
+      await vClassDetail(seg[1], seg[2]);
+    }
+    else if (seg[0] === "classes") await (isStudent() ? vStudentClasses() : vClasses());
     else if (seg[0] === "students" && seg[1]) await vStudentDetail(seg[1]);
     else if (seg[0] === "students") await vStudents();
     else if (seg[0] === "packages") await vPackages();

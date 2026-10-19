@@ -28,6 +28,23 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+-- Hồ sơ HLV (cấp đai, SĐT) + yêu cầu sửa hồ sơ chờ duyệt
+ALTER TABLE users ADD COLUMN IF NOT EXISTS belt_level VARCHAR(50) NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30) NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS profile_change_requests (
+  id           SERIAL PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  changes      JSONB NOT NULL DEFAULT '{}',
+  status       VARCHAR(20) NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending', 'approved', 'rejected')),
+  note         VARCHAR(300) NOT NULL DEFAULT '',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reviewed_at  TIMESTAMPTZ,
+  reviewer_id  INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pcr_user ON profile_change_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_pcr_status ON profile_change_requests(status);
+
 -- Lớp học
 CREATE TABLE IF NOT EXISTS classes (
   id          SERIAL PRIMARY KEY,

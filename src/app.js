@@ -21,6 +21,7 @@ function createApp() {
   app.use("/api/shift-swaps", require("./routes/shifts"));
   app.use("/api/export", require("./routes/export"));
   app.use("/api/directory", require("./routes/directory"));
+  app.use("/api/profile", require("./routes/profile"));
   app.use("/api/dashboard", require("./routes/dashboard"));
 
   app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));

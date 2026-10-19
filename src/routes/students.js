@@ -8,7 +8,13 @@ const { accessibleClassIds, classIdCondition, assertClassAccess, studentClassId,
 const router = express.Router();
 router.use(requireAuth);
 
-const SELECT = `s.*, c.name AS class_name, p.name AS package_name, p.monthly_fee AS package_fee`;
+const SELECT = `s.*, c.name AS class_name, p.name AS package_name, p.monthly_fee AS package_fee, p.sessions_per_week AS package_sessions`;
+
+// HLV không được thấy số tiền: ẩn package_fee và amount các khoản thu
+function stripMoneyForCoach(s) {
+  return { ...s, package_fee: null,
+    payments: (s.payments || []).map((p) => ({ ...p, amount: null })) };
+}
 
 router.get("/", async (req, res) => {
   const { branch_id, class_id, q, status } = req.query;
@@ -31,8 +37,22 @@ router.get("/", async (req, res) => {
      LEFT JOIN packages p ON p.id = s.package_id
      ${where} ORDER BY s.full_name LIMIT 500`, vals
   );
+  // Số buổi vắng không phép 30 ngày gần nhất (để HLV theo dõi nhắc nhở)
+  let absentMap = {};
+  if (rows.length) {
+    const ids = rows.map((r) => Number(r.id)).join(",");
+    const ab = await db.query(
+      `SELECT r.student_id AS sid, COUNT(*)::int AS n FROM attendance_records r
+       JOIN attendance_sessions ss ON ss.id = r.session_id
+       WHERE r.student_id IN (${ids}) AND r.status = 'absent'
+       AND ss.session_date >= CURRENT_DATE - INTERVAL '30 days'
+       GROUP BY r.student_id`
+    );
+    for (const x of ab.rows) absentMap[x.sid] = x.n;
+  }
   const today = todayStr();
-  res.json(rows.map((s) => ({ ...s, fee_state: s.status === "active" ? computeFeeState(s.paid_through, today) : s.status })));
+  res.json(rows.map((s) => ({ ...s, absent_30d: absentMap[s.id] || 0,
+    fee_state: s.status === "active" ? computeFeeState(s.paid_through, today) : s.status })));
 });
 
 // Hồ sơ của chính học viên đang đăng nhập (kèm chuyên cần cá nhân)
@@ -55,9 +75,17 @@ router.get("/me", async (req, res) => {
      FROM attendance_records r WHERE r.student_id = $1`, [s.id]
   );
   const a = att.rows[0] || { total: 0, present: 0, absent: 0, excused: 0 };
+  // Số buổi vắng không phép trong 30 ngày gần nhất (để nhắc nhở học viên)
+  const recent = await db.query(
+    `SELECT COUNT(r.id)::int AS absent_30d FROM attendance_records r
+     JOIN attendance_sessions ss ON ss.id = r.session_id
+     WHERE r.student_id = $1 AND r.status = 'absent' AND ss.session_date >= CURRENT_DATE - INTERVAL '30 days'`,
+    [s.id]
+  );
   res.json({ ...s,
     fee_state: s.status === "active" ? computeFeeState(s.paid_through, todayStr()) : s.status,
-    attendance: { ...a, rate: a.total ? Math.round((a.present / a.total) * 100) : null } });
+    attendance: { ...a, rate: a.total ? Math.round((a.present / a.total) * 100) : null,
+      absent_30d: (recent.rows[0] || {}).absent_30d || 0 } });
 });
 
 // Danh sách yêu cầu xóa học viên (admin: tất cả; HLV: của mình)
@@ -149,11 +177,13 @@ router.get("/:id", async (req, res) => {
   const pays = await db.query(
     "SELECT * FROM payments WHERE student_id = $1 ORDER BY paid_on DESC, id DESC", [s.id]
   );
-  res.json({
+  let out = {
     ...s,
     fee_state: s.status === "active" ? computeFeeState(s.paid_through, todayStr()) : s.status,
     payments: pays.rows,
-  });
+  };
+  if (req.user.role === "coach") out = stripMoneyForCoach(out);
+  res.json(out);
 });
 
 function pickStudentBody(b) {

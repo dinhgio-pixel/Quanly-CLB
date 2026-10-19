@@ -32,7 +32,74 @@ router.get("/", async (req, res) => {
      LEFT JOIN users u ON u.id = p.created_by
      ${where} ORDER BY p.paid_on DESC, p.id DESC LIMIT 500`, vals
   );
-  res.json(rows);
+  // HLV không thấy số tiền
+  res.json(req.user.role === "coach" ? rows.map((p) => ({ ...p, amount: null })) : rows);
+});
+
+// Admin đánh dấu tháng đã đóng / chưa đóng cho học viên (đồng bộ với payments)
+// paid=true: tạo khoản thu học phí cho đúng tháng đó; paid=false: xóa khoản thu
+// do chức năng này tạo (chỉ xóa đúng khoản đã đánh dấu, không động vào khoản thu tay)
+router.post("/fee-month", requireRole("admin"), async (req, res) => {
+  const { student_id, year, month, paid } = req.body || {};
+  const sid = Number(student_id), y = Number(year), m = Number(month);
+  if (!sid || !y || !m || m < 1 || m > 12 || typeof paid !== "boolean") {
+    return res.status(400).json({ error: "Thiếu học viên / năm / tháng / trạng thái" });
+  }
+  const st = await db.query(
+    `SELECT s.*, p.monthly_fee AS pkg_fee, c.monthly_fee AS class_fee
+     FROM students s
+     LEFT JOIN packages p ON p.id = s.package_id
+     LEFT JOIN classes c ON c.id = s.class_id
+     WHERE s.id = $1`, [sid]
+  );
+  const s = st.rows[0];
+  if (!s) return res.status(404).json({ error: "Không tìm thấy học viên" });
+  const first = `${y}-${String(m).padStart(2, "0")}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const last = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const NOTE_PREFIX = "Đánh dấu đóng học phí";
+  // Các khoản học phí đang bao phủ tháng này
+  const cov = await db.query(
+    `SELECT * FROM payments WHERE student_id = $1 AND category = 'tuition'
+     AND paid_on <= $2 AND COALESCE(paid_through, paid_on) >= $3 ORDER BY id`, [sid, last, first]
+  );
+  if (paid) {
+    if (cov.rows.length) return res.json({ ok: true, already: true });
+    const amount = Math.round(Number(s.pkg_fee || s.class_fee || 0));
+    if (!(amount > 0)) return res.status(400).json({ error: "Chưa cấu hình học phí cho gói/lớp của học viên" });
+    await db.query(
+      `INSERT INTO payments (branch_id, student_id, category, amount, paid_on, paid_through, note, created_by)
+       VALUES ($1,$2,'tuition',$3,$4,$5,$6,$7)`,
+      [s.branch_id, sid, amount, first, last, `${NOTE_PREFIX} T${m}/${y}`, req.user.id]
+    );
+    const curPt = isoDate(s.paid_through);
+    if (!curPt || last > curPt) {
+      await db.query("UPDATE students SET paid_through = $1 WHERE id = $2", [last, sid]);
+    }
+    return res.json({ ok: true });
+  }
+  // paid=false: chỉ xóa khoản do chức năng đánh dấu tạo ra và khớp đúng tháng
+  const marked = cov.rows.filter((p) =>
+    isoDate(p.paid_on) === first && isoDate(p.paid_through) === last &&
+    String(p.note || "").startsWith(NOTE_PREFIX));
+  if (!marked.length) {
+    const other = cov.rows[0];
+    return res.status(400).json({ error: other
+      ? `Tháng này thuộc khoản thu ngày ${isoDate(other.paid_on)} — hãy sửa/xóa ở Lịch sử thu phí`
+      : "Tháng này chưa được đánh dấu đóng" });
+  }
+  await db.query(`DELETE FROM payments WHERE id IN (${marked.map((p) => Number(p.id)).join(",")})`);
+  // Tính lại paid_through từ các khoản học phí còn lại
+  const rest = await db.query(
+    `SELECT paid_on, paid_through FROM payments WHERE student_id = $1 AND category = 'tuition'`, [sid]
+  );
+  let pt = null;
+  for (const r of rest.rows) {
+    const d = isoDate(r.paid_through) || isoDate(r.paid_on);
+    if (d && (!pt || d > pt)) pt = d;
+  }
+  await db.query("UPDATE students SET paid_through = $1 WHERE id = $2", [pt, sid]);
+  res.json({ ok: true });
 });
 
 router.post("/", async (req, res) => {

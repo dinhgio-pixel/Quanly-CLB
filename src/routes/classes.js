@@ -42,6 +42,32 @@ router.get("/", async (req, res) => {
   res.json(rows.map((c) => ({ ...c, coaches: (coachMap[c.id] || []).join(", ") || null })));
 });
 
+// Danh mục tất cả lớp trên hệ thống (kèm HLV + cấp đai HLV, số HV) — mọi vai trò đều xem được
+router.get("/catalog", async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT c.id, c.branch_id, c.name, c.schedule, c.room, c.status, b.name AS branch_name,
+            COUNT(CASE WHEN s.status = 'active' THEN 1 END)::int AS active_students
+     FROM classes c JOIN branches b ON b.id = c.branch_id
+     LEFT JOIN students s ON s.class_id = c.id
+     GROUP BY c.id, c.branch_id, c.name, c.schedule, c.room, c.status, b.name
+     ORDER BY b.name, c.name`
+  );
+  let coachMap = {};
+  if (rows.length) {
+    const ids = rows.map((r) => r.id).join(",");
+    const cc = await db.query(
+      `SELECT cc.class_id, u.full_name, u.username, u.belt_level FROM coach_classes cc
+       JOIN users u ON u.id = cc.user_id WHERE cc.class_id IN (${ids})`
+    );
+    for (const r of cc.rows) {
+      (coachMap[r.class_id] = coachMap[r.class_id] || []).push({
+        name: r.full_name || r.username, belt_level: r.belt_level || "",
+      });
+    }
+  }
+  res.json(rows.map((c) => ({ ...c, coaches: coachMap[c.id] || [] })));
+});
+
 router.post("/", requireRole("admin"), async (req, res) => {
   const { branch_id, name, schedule, room, monthly_fee } = req.body || {};
   if (!branch_id || !name || !name.trim()) return res.status(400).json({ error: "Thiếu chi nhánh/tên lớp" });
@@ -83,7 +109,8 @@ router.get("/:id/fee-overview", async (req, res) => {
   const today = todayStr();
   const { rows } = await db.query(
     `SELECT s.id, s.full_name, s.status, s.paid_through, s.phone,
-            p.name AS package_name, p.monthly_fee AS package_fee
+            p.name AS package_name, p.monthly_fee AS package_fee,
+            p.sessions_per_week AS package_sessions
      FROM students s LEFT JOIN packages p ON p.id = s.package_id
      WHERE s.class_id = $1 ORDER BY s.full_name`,
     [classId]
@@ -93,7 +120,9 @@ router.get("/:id/fee-overview", async (req, res) => {
     if (s.status === "paused") fee = "paused";
     else if (s.status === "stopped") fee = "stopped";
     else fee = computeFeeState(s.paid_through, today);
-    return { ...s, fee_state: fee };
+    const row = { ...s, fee_state: fee };
+    if (req.user.role === "coach") row.package_fee = null; // HLV không thấy số tiền
+    return row;
   });
   const summary = { paid: 0, unpaid: 0, overdue: 0, due_soon: 0, paused: 0, stopped: 0 };
   for (const s of students) summary[s.fee_state] = (summary[s.fee_state] || 0) + 1;
