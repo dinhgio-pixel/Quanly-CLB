@@ -309,14 +309,26 @@ window.branchDel = async (id) => {
 
 /* ----- classes ----- */
 async function vClasses() {
+  // HLV thấy tất cả lớp đang hoạt động: lớp mình dạy thì làm việc bình thường, lớp khác chỉ xem
+  let extra = [];
+  if (isCoach()) {
+    const cat = await api("GET", "/classes/catalog").catch(() => []);
+    const mine = new Set(S.classes.map((c) => c.id));
+    extra = cat.filter((c) => !mine.has(c.id) && c.status === "active");
+  }
   V.innerHTML = pageHead("Lớp học", isAdmin() ? `<button class="btn" onclick="classForm()">+ Thêm lớp</button>` : "") +
     `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">` +
     S.classes.map((c) => `<div class="card"><h3><a href="#/classes/${c.id}">${esc(c.name)}</a></h3>
       <div class="muted">${esc(c.schedule)}${c.room ? " · " + esc(c.room) : ""}</div>
       <div class="row spread" style="margin-top:.5rem"><span>${c.active_students} HV đang học</span>
       ${isAdmin() ? `<b>${fmtVND(c.monthly_fee)}</b>` : ""}</div>
-      ${c.coaches ? `<div class="muted">HLV: ${esc(c.coaches)}</div>` : ""}</div>`).join("") + `</div>` +
-    (S.classes.length ? "" : `<p class="muted">Chưa có lớp nào.</p>`);
+      ${c.coaches ? `<div class="muted">HLV: ${esc(c.coaches)}</div>` : ""}</div>`).join("") +
+    extra.map((c) => `<div class="card"><h3>${esc(c.name)}</h3>
+      <div class="muted">${esc(c.branch_name)} · ${esc(c.schedule || "—")}${c.room ? " · " + esc(c.room) : ""}</div>
+      <div class="row spread" style="margin-top:.5rem"><span>${c.active_students} HV đang học</span><span class="muted">👁 Chỉ xem</span></div>
+      ${c.coaches.length ? `<div class="muted">HLV: ${c.coaches.map((h) => esc(h.name)).join(", ")}</div>` : ""}</div>`).join("") +
+    `</div>` +
+    (S.classes.length + extra.length ? "" : `<p class="muted">Chưa có lớp nào.</p>`);
 }
 window.classForm = async (id) => {
   const c = id ? S.classes.find((x) => x.id === id) : {};
