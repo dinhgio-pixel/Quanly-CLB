@@ -1,6 +1,7 @@
 "use strict";
 // Hồ sơ cá nhân của HLV: xem + gửi yêu cầu sửa (họ tên, cấp đai, SĐT) chờ admin duyệt.
 const express = require("express");
+const bcrypt = require("bcryptjs");
 const db = require("../db");
 const { requireAuth, requireRole } = require("../auth");
 
@@ -51,6 +52,27 @@ router.post("/request", async (req, res) => {
     [req.user.id, JSON.stringify(changes)]
   );
   res.status(201).json({ ok: true, id: rows[0].id });
+});
+
+// Đổi mật khẩu của chính mình (mọi vai trò; phải nhập đúng mật khẩu hiện tại, áp dụng ngay)
+router.post("/change-password", async (req, res) => {
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password) {
+    return res.status(400).json({ error: "Nhập đủ mật khẩu hiện tại và mật khẩu mới" });
+  }
+  if (String(new_password).length < 6) {
+    return res.status(400).json({ error: "Mật khẩu mới phải có ít nhất 6 ký tự" });
+  }
+  if (String(new_password) === String(current_password)) {
+    return res.status(400).json({ error: "Mật khẩu mới phải khác mật khẩu hiện tại" });
+  }
+  const { rows } = await db.query("SELECT password_hash FROM users WHERE id = $1", [req.user.id]);
+  if (!rows[0]) return res.status(404).json({ error: "Không tìm thấy tài khoản" });
+  const ok = await bcrypt.compare(String(current_password), rows[0].password_hash);
+  if (!ok) return res.status(400).json({ error: "Mật khẩu hiện tại không đúng" });
+  const hash = await bcrypt.hash(String(new_password), 10);
+  await db.query("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, req.user.id]);
+  res.json({ ok: true });
 });
 
 // Danh sách yêu cầu chờ duyệt (admin)

@@ -735,4 +735,28 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.ok(all.body.some((c) => c.id === nc.body.id));
     assert.ok(all.body.some((c) => c.branch_id === 1));
   });
+
+  it("tự đổi mật khẩu: sai MK hiện tại bị chặn, đúng thì đăng nhập bằng MK mới", async () => {
+    const cauth = { Authorization: "Bearer " + coachToken };
+    const wrong = await request(app).post("/api/profile/change-password").set(cauth)
+      .send({ current_password: "sai-mat-khau", new_password: "matkhau-moi-1" });
+    assert.equal(wrong.status, 400);
+    const short = await request(app).post("/api/profile/change-password").set(cauth)
+      .send({ current_password: "hlv123", new_password: "123" });
+    assert.equal(short.status, 400);
+    const ok = await request(app).post("/api/profile/change-password").set(cauth)
+      .send({ current_password: "hlv123", new_password: "matkhau-moi-1" });
+    assert.equal(ok.status, 200);
+    // MK cũ không đăng nhập được nữa, MK mới đăng nhập được
+    const oldLogin = await request(app).post("/api/auth/login")
+      .send({ username: "hlv_test", password: "hlv123" });
+    assert.equal(oldLogin.status, 401);
+    const t2 = await loginAs("hlv_test", "matkhau-moi-1");
+    assert.ok(t2);
+    // đổi lại MK cũ để các lần chạy sau không lệch
+    const back = await request(app).post("/api/profile/change-password")
+      .set({ Authorization: "Bearer " + t2 })
+      .send({ current_password: "matkhau-moi-1", new_password: "hlv123" });
+    assert.equal(back.status, 200);
+  });
 });

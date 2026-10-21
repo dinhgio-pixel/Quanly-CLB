@@ -1136,7 +1136,8 @@ async function vProfile() {
     <tr><td class="muted">SĐT</td><td>${esc(me.phone || "—")}</td></tr>
     <tr><td class="muted">Vai trò</td><td>${roleLabel(me.role)}</td></tr>
     </table>
-    <div class="btnrow"><button class="btn" onclick="profileForm()">✏️ Sửa thông tin</button></div></div>` +
+    <div class="btnrow"><button class="btn" onclick="profileForm()">✏️ Sửa thông tin</button>
+    <button class="btn ghost" onclick="changePasswordForm()">🔑 Đổi mật khẩu</button></div></div>` +
     (pend ? `<div class="card"><h3>⏳ Đang chờ duyệt</h3>
     <p class="muted">Yêu cầu sửa hồ sơ bạn gửi lúc ${fmtDate((pend.created_at || "").slice(0, 10))} đang chờ quản trị viên duyệt.</p></div>` : "");
 }
@@ -1153,6 +1154,22 @@ window.profileForm = async () => {
     try {
       await api("POST", "/profile/request", { full_name: fd.get("full_name"), belt_level: fd.get("belt_level"), phone: fd.get("phone") });
       closeModal(); toast("Đã gửi, chờ quản trị viên duyệt"); vProfile();
+    } catch (err) { toast(err.message); }
+  };
+};
+// Đổi mật khẩu đăng nhập của chính mình (áp dụng ngay, không cần duyệt)
+window.changePasswordForm = () => {
+  openModal(`<h3>🔑 Đổi mật khẩu</h3><form id="f">
+    <label>Mật khẩu hiện tại</label><input name="current_password" type="password" required autocomplete="current-password">
+    <label>Mật khẩu mới (ít nhất 6 ký tự)</label><input name="new_password" type="password" required autocomplete="new-password">
+    <label>Nhập lại mật khẩu mới</label><input name="confirm_password" type="password" required autocomplete="new-password">
+    <div class="btnrow"><button class="btn">Đổi mật khẩu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    if (fd.get("new_password") !== fd.get("confirm_password")) { toast("Mật khẩu mới nhập lại không khớp"); return; }
+    try {
+      await api("POST", "/profile/change-password", { current_password: fd.get("current_password"), new_password: fd.get("new_password") });
+      closeModal(); toast("Đã đổi mật khẩu — lần đăng nhập sau dùng mật khẩu mới nhé");
     } catch (err) { toast(err.message); }
   };
 };
