@@ -180,6 +180,19 @@ const classIdsOf = (u) => {
   try { const p = JSON.parse(v || "[]"); return Array.isArray(p) ? p.map(Number).filter((n) => Number.isInteger(n)) : []; }
   catch (e) { return []; }
 };
+// Danh sách chi nhánh HLV trực thuộc
+const branchIdsOf = (u) => {
+  const v = u ? u.branch_ids : null;
+  if (Array.isArray(v)) return v.map(Number).filter((n) => Number.isInteger(n));
+  try { const p = JSON.parse(v || "[]"); return Array.isArray(p) ? p.map(Number).filter((n) => Number.isInteger(n)) : []; }
+  catch (e) { return []; }
+};
+// Tick/bỏ tick chi nhánh ở form Tài khoản -> tick/bỏ tick tất cả lớp trong chi nhánh đó
+window.toggleBranchClasses = (box) => {
+  const block = box.closest(".branch-block");
+  if (!block) return;
+  block.querySelectorAll("input[name=class_id]").forEach((x) => { x.checked = box.checked; });
+};
 const SWAP_LABEL = { pending: "Chờ duyệt", approved: "Đã duyệt", rejected: "Từ chối" };
 const swapBadge = (s) => `<span class="badge ${s === "approved" ? "b-paid" : s === "rejected" ? "b-overdue" : "b-due_soon"}">${SWAP_LABEL[s] || s}</span>`;
 
@@ -1233,14 +1246,16 @@ window.userForm = async (id) => {
   const users = await api("GET", "/users");
   const u = id ? users.find((x) => x.id === id) : {};
   const students = await api("GET", `/students?branch_id=${S.branchId}&status=active`).catch(() => []);
-  // Lớp phụ trách của HLV: hiện lớp của MỌI chi nhánh, gom theo chi nhánh
+  // HLV trực thuộc chi nhánh nào + phụ trách lớp nào: chọn chi nhánh trước, rồi tick lớp trong chi nhánh
   const catalog = await api("GET", "/classes/catalog").catch(() => []);
-  const byBranch = {};
-  catalog.filter((c) => c.status === "active").forEach((c) => {
-    (byBranch[c.branch_name] = byBranch[c.branch_name] || []).push(c);
-  });
-  const classGroups = Object.keys(byBranch).map((b) => `<div style="margin:.45rem 0"><b style="font-size:.92rem">🏢 ${esc(b)}</b>
-    ${byBranch[b].map((c) => `<label style="display:flex;gap:.45rem;align-items:center;margin:.3rem 0 .3rem .8rem;font-size:.95rem;color:var(--ink)"><input type="checkbox" name="class_id" value="${c.id}" style="width:auto" ${classIdsOf(u).includes(c.id) ? "checked" : ""}> ${esc(c.name)} <span class="muted">${esc(c.schedule || "")}</span></label>`).join("")}</div>`).join("");
+  const branchBlocks = S.branches.map((b) => {
+    const cls = catalog.filter((c) => c.branch_id === b.id && c.status === "active");
+    return `<div class="branch-block" style="border:1px solid var(--line,#ddd);border-radius:.5rem;padding:.45rem .6rem;margin:.45rem 0">
+      <label style="display:flex;gap:.45rem;align-items:center;font-size:.95rem;color:var(--ink)"><input type="checkbox" name="branch_id" value="${b.id}" style="width:auto" ${branchIdsOf(u).includes(b.id) ? "checked" : ""} onchange="toggleBranchClasses(this)"> <b>🏢 ${esc(b.name)}</b></label>
+      ${cls.length ? cls.map((c) => `<label style="display:flex;gap:.45rem;align-items:center;margin:.3rem 0 .3rem 1.4rem;font-size:.95rem;color:var(--ink)"><input type="checkbox" name="class_id" value="${c.id}" style="width:auto" ${classIdsOf(u).includes(c.id) ? "checked" : ""}> ${esc(c.name)} <span class="muted">${esc(c.schedule || "")}</span></label>`).join("")
+        : `<p class="muted" style="margin:.25rem 0 .25rem 1.4rem">Chưa có lớp — tạo lớp sau rồi quay lại gán cho HLV.</p>`}
+    </div>`;
+  }).join("");
   openModal(`<h3>${id ? "Sửa" : "Thêm"} tài khoản</h3><form id="f">
     <label>Tên đăng nhập</label><input name="username" value="${esc(u.username || "")}" ${id ? "disabled" : "required"}>
     <label>Họ tên</label><input name="full_name" value="${esc(u.full_name || "")}">
@@ -1256,8 +1271,8 @@ window.userForm = async (id) => {
       <label>Gắn với học viên</label><select name="student_id">
       ${students.map((s) => `<option value="${s.id}" ${u.student_id == s.id ? "selected" : ""}>${esc(s.full_name)}${s.class_name ? " — " + esc(s.class_name) : ""}</option>`).join("")}
       </select></div>
-    <label>Lớp phụ trách (chỉ áp dụng cho HLV — tick lớp ở bất kỳ chi nhánh nào, có thể chọn nhiều lớp)</label>
-    <div>${classGroups || `<p class="muted">Chưa có lớp nào.</p>`}</div>
+    <label>Chi nhánh & lớp phụ trách (chỉ áp dụng cho HLV — tick chi nhánh để chọn nhanh tất cả lớp trong chi nhánh)</label>
+    <div>${branchBlocks || `<p class="muted">Chưa có chi nhánh nào.</p>`}</div>
     <label>Trạng thái</label><select name="status"><option value="active" ${u.status !== "inactive" ? "selected" : ""}>Đang mở</option>
       <option value="inactive" ${u.status === "inactive" ? "selected" : ""}>Khóa</option></select>
     <div class="btnrow"><button class="btn">Lưu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button>
@@ -1273,10 +1288,14 @@ window.userForm = async (id) => {
       let uid = id;
       if (id) await api("PUT", "/users/" + id, body);
       else { const created = await api("POST", "/users", body); uid = created.id; }
-      // Lưu lớp phụ trách cho HLV
+      // Lưu chi nhánh + lớp phụ trách cho HLV
       if (uid && body.role === "coach") {
         const checked = $$("#f input[name=class_id]:checked").map((x) => Number(x.value));
-        await api("PUT", `/users/${uid}/classes`, { classIds: checked });
+        const bChecked = $$("#f input[name=branch_id]:checked").map((x) => Number(x.value));
+        // Chi nhánh có lớp được tick cũng tính là chi nhánh HLV trực thuộc
+        const fromClasses = checked.map((cid) => { const c = catalog.find((x) => x.id === cid); return c ? c.branch_id : null; }).filter(Boolean);
+        const branchIds = [...new Set([...bChecked, ...fromClasses])];
+        await api("PUT", `/users/${uid}/classes`, { classIds: checked, branchIds });
       }
       // Lưu liên kết học viên cho tài khoản HV
       if (uid && body.role === "student") {

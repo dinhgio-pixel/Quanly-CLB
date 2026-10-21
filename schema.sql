@@ -69,6 +69,15 @@ CREATE TABLE IF NOT EXISTS coach_classes (
 CREATE INDEX IF NOT EXISTS idx_coach_classes_user  ON coach_classes(user_id);
 CREATE INDEX IF NOT EXISTS idx_coach_classes_class ON coach_classes(class_id);
 
+-- Chi nhánh HLV trực thuộc (chọn ở form Tài khoản; lớp mới của chi nhánh gán sau qua coach_classes)
+CREATE TABLE IF NOT EXISTS coach_branches (
+  id        SERIAL PRIMARY KEY,
+  user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  UNIQUE (user_id, branch_id)
+);
+CREATE INDEX IF NOT EXISTS idx_coach_branches_user ON coach_branches(user_id);
+
 -- Gói học (quản lý linh động ngay trên phần mềm)
 CREATE TABLE IF NOT EXISTS packages (
   id               SERIAL PRIMARY KEY,

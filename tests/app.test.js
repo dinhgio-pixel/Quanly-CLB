@@ -705,4 +705,21 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(ok.status, 200);
     assert.equal(ok.body.class_id, 3);
   });
+
+  it("gán chi nhánh cho HLV: lưu branch_ids kể cả chi nhánh chưa có lớp", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const br = await request(app).post("/api/branches").set(auth).send({ name: "Chi nhánh Test Mới", kind: "teaching_point" });
+    assert.equal(br.status, 201);
+    const bid = br.body.id;
+    const { query } = require("../src/db");
+    const cu = await query("SELECT id FROM users WHERE username = 'hlv_test'");
+    const coachId = cu.rows[0].id;
+    const put = await request(app).put(`/api/users/${coachId}/classes`).set(auth)
+      .send({ classIds: [2], branchIds: [1, bid] });
+    assert.equal(put.status, 200);
+    const users = await request(app).get("/api/users").set(auth);
+    const u = users.body.find((x) => x.id === coachId);
+    assert.ok(u.branch_ids.includes(1) && u.branch_ids.includes(bid));
+    assert.deepEqual(u.class_ids, [2]);
+  });
 });

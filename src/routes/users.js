@@ -15,14 +15,16 @@ router.get("/", async (req, res) => {
      FROM users u LEFT JOIN students st ON st.id = u.student_id
      ORDER BY u.id`
   );
-  // Lớp phụ trách của HLV (query riêng cho tương thích pg-mem)
-  let classMap = {};
+  // Lớp phụ trách + chi nhánh trực thuộc của HLV (query riêng cho tương thích pg-mem)
+  let classMap = {}, branchMap = {};
   if (rows.length) {
     const ids = rows.map((r) => r.id).join(",");
     const cc = await db.query(`SELECT user_id, class_id FROM coach_classes WHERE user_id IN (${ids})`);
     for (const r of cc.rows) (classMap[r.user_id] = classMap[r.user_id] || []).push(r.class_id);
+    const cb = await db.query(`SELECT user_id, branch_id FROM coach_branches WHERE user_id IN (${ids})`);
+    for (const r of cb.rows) (branchMap[r.user_id] = branchMap[r.user_id] || []).push(r.branch_id);
   }
-  res.json(rows.map((u) => ({ ...u, class_ids: classMap[u.id] || [] })));
+  res.json(rows.map((u) => ({ ...u, class_ids: classMap[u.id] || [], branch_ids: branchMap[u.id] || [] })));
 });
 
 router.post("/", async (req, res) => {
@@ -102,7 +104,16 @@ router.put("/:id/classes", async (req, res) => {
   for (const cid of classIds) {
     await db.query("INSERT INTO coach_classes (user_id, class_id) VALUES ($1,$2)", [userId, cid]);
   }
-  res.json({ ok: true, classIds });
+  // Chi nhánh trực thuộc (nếu client gửi kèm branchIds)
+  let branchIds = null;
+  if (Array.isArray(req.body.branchIds)) {
+    branchIds = req.body.branchIds.map(Number).filter(Boolean);
+    await db.query("DELETE FROM coach_branches WHERE user_id = $1", [userId]);
+    for (const bid of branchIds) {
+      await db.query("INSERT INTO coach_branches (user_id, branch_id) VALUES ($1,$2)", [userId, bid]);
+    }
+  }
+  res.json({ ok: true, classIds, branchIds });
 });
 
 module.exports = router;
