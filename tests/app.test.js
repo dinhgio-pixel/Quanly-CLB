@@ -683,4 +683,26 @@ describe("Quản lý CLB Vovinam (production)", () => {
     d = await request(app).get("/api/students/" + sid).set(auth);
     assert.equal(d.body.paid_through, null);
   });
+
+  it("chuyển lớp: admin tự do, HLV chỉ chuyển HV lớp mình dạy sang lớp bất kỳ", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const cauth = { Authorization: "Bearer " + coachToken };
+    const created = await request(app).post("/api/students").set(auth).send({
+      branch_id: 1, class_id: 2, full_name: "HV Chuyen Lop", joined_on: "2026-01-05" });
+    assert.equal(created.status, 201);
+    const sid = created.body.id;
+    // HLV test dạy lớp 2 -> chuyển HV lớp 2 sang lớp 1 được (lớp đích không cần là lớp mình dạy)
+    const byCoach = await request(app).post(`/api/students/${sid}/transfer`).set(cauth).send({ class_id: 1 });
+    assert.equal(byCoach.status, 200);
+    assert.equal(byCoach.body.class_id, 1);
+    // giờ HV ở lớp 1 (không phải lớp HLV) -> HLV chuyển tiếp bị chặn
+    const blocked = await request(app).post(`/api/students/${sid}/transfer`).set(cauth).send({ class_id: 3 });
+    assert.equal(blocked.status, 403);
+    // admin chuyển tự do; chuyển về đúng lớp hiện tại -> 400
+    const same = await request(app).post(`/api/students/${sid}/transfer`).set(auth).send({ class_id: 1 });
+    assert.equal(same.status, 400);
+    const ok = await request(app).post(`/api/students/${sid}/transfer`).set(auth).send({ class_id: 3 });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.class_id, 3);
+  });
 });

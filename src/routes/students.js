@@ -271,6 +271,28 @@ router.put("/:id", async (req, res) => {
   res.json(rows[0]);
 });
 
+// Chuyển lớp cho học viên (admin tự do; HLV chỉ chuyển HV thuộc lớp mình dạy, lớp đích bất kỳ đang hoạt động)
+router.post("/:id/transfer", async (req, res) => {
+  if (req.user.role === "student") return res.status(403).json({ error: "Không có quyền" });
+  const id = Number(req.params.id);
+  const targetId = Number((req.body || {}).class_id);
+  if (!targetId) return res.status(400).json({ error: "Chưa chọn lớp đích" });
+  const cur = await db.query("SELECT id, class_id FROM students WHERE id = $1", [id]);
+  const st = cur.rows[0];
+  if (!st) return res.status(404).json({ error: "Không tìm thấy học viên" });
+  if (Number(st.class_id) === targetId) return res.status(400).json({ error: "Học viên đã ở lớp này" });
+  if (req.user.role !== "admin" && !(await assertClassAccess(req, res, st.class_id))) return;
+  const tc = await db.query("SELECT id, branch_id, status FROM classes WHERE id = $1", [targetId]);
+  const tcls = tc.rows[0];
+  if (!tcls) return res.status(404).json({ error: "Không tìm thấy lớp đích" });
+  if (tcls.status !== "active") return res.status(400).json({ error: "Lớp đích không còn hoạt động" });
+  const { rows } = await db.query(
+    "UPDATE students SET class_id = $1, branch_id = $2 WHERE id = $3 RETURNING *",
+    [targetId, tcls.branch_id, id]
+  );
+  res.json(rows[0]);
+});
+
 router.delete("/:id", requireRole("admin"), async (req, res) => {
   const id = Number(req.params.id);
   const { rows } = await db.query("SELECT id FROM students WHERE id = $1", [id]);

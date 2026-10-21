@@ -413,12 +413,13 @@ async function vClassDetail(id, tab) {
     el.innerHTML = `<div class="row spread"><b>${list.length} học viên</b><div class="btnrow" style="margin:0">
       <button class="btn small ghost" onclick="exportStudents(${id})">⬇ Xuất Excel</button>
       <button class="btn small" onclick="studentForm(null,${id})">+ Thêm HV</button></div></div>
-    <div class="tbl-wrap"><table><tr><th>Họ tên</th><th>Cấp đai</th><th>Gói</th><th>HP đến ngày</th><th>Vắng 30N</th><th>Trạng thái</th></tr>
+    <div class="tbl-wrap"><table><tr><th>Họ tên</th><th>Cấp đai</th><th>Gói</th><th>HP đến ngày</th><th>Vắng 30N</th><th>Trạng thái</th><th></th></tr>
     ${list.map((s) => `<tr class="clickable" onclick="location.hash='#/students/${s.id}'"><td><b>${esc(s.full_name)}</b><br><span class="muted">${esc(s.phone || "")}</span></td>
       <td>🥋 ${esc(s.belt_level || "—")}</td>
       <td class="muted">${esc(s.package_name || "—")}</td><td>${fmtDate(s.paid_through)}</td>
       <td>${(s.absent_30d || 0) >= 3 ? `<b style="color:var(--bad)">⚠️ ${s.absent_30d}</b>` : (s.absent_30d || 0)}</td>
-      <td>${feeBadge(s.fee_state)}</td></tr>`).join("")}</table></div>`;
+      <td>${feeBadge(s.fee_state)}</td>
+      <td><button class="btn small ghost" onclick="event.stopPropagation();transferStudent(${s.id})">🔀 Chuyển lớp</button></td></tr>`).join("")}</table></div>`;
   } else if (tab === "attendance") {
     el.innerHTML = `<div class="row"><input type="date" id="attDate" value="${todayInput()}" style="width:auto">
       <button class="btn" onclick="takeAttendance(${id})">Điểm danh</button>
@@ -608,7 +609,7 @@ async function vStudentDetail(id, yr) {
   const s = await api("GET", "/students/" + id);
   const year = String(yr || feeYearSel || todayInput().slice(0, 4));
   feeYearSel = year;
-  V.innerHTML = pageHead(s.full_name, `<button class="btn ghost" onclick="studentForm(${s.id})">Sửa</button>`) +
+  V.innerHTML = pageHead(s.full_name, `${!isStudent() ? `<button class="btn ghost" onclick="transferStudent(${s.id})">🔀 Chuyển lớp</button> ` : ""}<button class="btn ghost" onclick="studentForm(${s.id})">Sửa</button>`) +
     `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
     <div class="card"><h3>Thông tin</h3>
       <table>
@@ -646,6 +647,30 @@ async function vStudentDetail(id, yr) {
       <td><div class="btnrow" style="margin:0"><button class="btn small ghost" onclick="payEdit(${p.id},${s.id})">Sửa</button><button class="btn small danger" onclick="payDel(${p.id},${s.id})">Xóa</button></div></td></tr>`).join("")}</table></div>`
       : `<p class="muted">Chưa có khoản thu nào.</p>`}</div>` : ""}`;
 }
+// Chuyển lớp cho học viên (admin + HLV): chọn lớp đích ở bất kỳ chi nhánh nào
+window.transferStudent = async (sid) => {
+  const s = await api("GET", "/students/" + sid).catch(() => null);
+  if (!s) { toast("Không tải được học viên"); return; }
+  const cat = await api("GET", "/classes/catalog").catch(() => []);
+  const targets = cat.filter((c) => c.status === "active" && c.id !== Number(s.class_id));
+  if (!targets.length) { toast("Không có lớp đích nào khác đang hoạt động"); return; }
+  const byBranch = {};
+  targets.forEach((c) => { (byBranch[c.branch_name] = byBranch[c.branch_name] || []).push(c); });
+  openModal(`<h3>🔀 Chuyển lớp</h3>
+    <p>Chuyển học viên <b>${esc(s.full_name)}</b> từ lớp <b>${esc(s.class_name || "—")}</b> sang lớp khác. Học phí và lịch sử học tập được giữ nguyên.</p>
+    <form id="f"><label>Lớp đích</label><select name="class_id" required>
+    ${Object.keys(byBranch).map((b) => `<optgroup label="${esc(b)}">${byBranch[b].map((c) => `<option value="${c.id}">${esc(c.name)} — ${esc(c.schedule || "")}</option>`).join("")}</optgroup>`).join("")}
+    </select>
+    <div class="btnrow"><button class="btn">Chuyển lớp</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    try {
+      await api("POST", `/students/${sid}/transfer`, { class_id: fd.get("class_id") });
+      closeModal(); toast("Đã chuyển lớp cho " + s.full_name);
+      route();
+    } catch (err) { toast(err.message); }
+  };
+};
 // Admin bấm vào ô tháng trong bảng thu phí năm để đánh dấu đã đóng / bỏ đánh dấu
 window.toggleFeeMonth = async (sid, year, month, paid) => {
   try {
@@ -1208,6 +1233,14 @@ window.userForm = async (id) => {
   const users = await api("GET", "/users");
   const u = id ? users.find((x) => x.id === id) : {};
   const students = await api("GET", `/students?branch_id=${S.branchId}&status=active`).catch(() => []);
+  // Lớp phụ trách của HLV: hiện lớp của MỌI chi nhánh, gom theo chi nhánh
+  const catalog = await api("GET", "/classes/catalog").catch(() => []);
+  const byBranch = {};
+  catalog.filter((c) => c.status === "active").forEach((c) => {
+    (byBranch[c.branch_name] = byBranch[c.branch_name] || []).push(c);
+  });
+  const classGroups = Object.keys(byBranch).map((b) => `<div style="margin:.45rem 0"><b style="font-size:.92rem">🏢 ${esc(b)}</b>
+    ${byBranch[b].map((c) => `<label style="display:flex;gap:.45rem;align-items:center;margin:.3rem 0 .3rem .8rem;font-size:.95rem;color:var(--ink)"><input type="checkbox" name="class_id" value="${c.id}" style="width:auto" ${classIdsOf(u).includes(c.id) ? "checked" : ""}> ${esc(c.name)} <span class="muted">${esc(c.schedule || "")}</span></label>`).join("")}</div>`).join("");
   openModal(`<h3>${id ? "Sửa" : "Thêm"} tài khoản</h3><form id="f">
     <label>Tên đăng nhập</label><input name="username" value="${esc(u.username || "")}" ${id ? "disabled" : "required"}>
     <label>Họ tên</label><input name="full_name" value="${esc(u.full_name || "")}">
@@ -1223,8 +1256,8 @@ window.userForm = async (id) => {
       <label>Gắn với học viên</label><select name="student_id">
       ${students.map((s) => `<option value="${s.id}" ${u.student_id == s.id ? "selected" : ""}>${esc(s.full_name)}${s.class_name ? " — " + esc(s.class_name) : ""}</option>`).join("")}
       </select></div>
-    <label>Lớp phụ trách (chỉ áp dụng cho HLV — có thể chọn nhiều lớp)</label>
-    <div>${S.classes.map((c) => `<label style="display:flex;gap:.45rem;align-items:center;margin:.3rem 0;font-size:.95rem;color:var(--ink)"><input type="checkbox" name="class_id" value="${c.id}" style="width:auto" ${classIdsOf(u).includes(c.id) ? "checked" : ""}> ${esc(c.name)}</label>`).join("") || `<p class="muted">Chưa có lớp nào.</p>`}</div>
+    <label>Lớp phụ trách (chỉ áp dụng cho HLV — tick lớp ở bất kỳ chi nhánh nào, có thể chọn nhiều lớp)</label>
+    <div>${classGroups || `<p class="muted">Chưa có lớp nào.</p>`}</div>
     <label>Trạng thái</label><select name="status"><option value="active" ${u.status !== "inactive" ? "selected" : ""}>Đang mở</option>
       <option value="inactive" ${u.status === "inactive" ? "selected" : ""}>Khóa</option></select>
     <div class="btnrow"><button class="btn">Lưu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button>
