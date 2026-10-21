@@ -1174,19 +1174,26 @@ window.changePasswordForm = () => {
   };
 };
 
-/* ----- lớp học (học viên xem tất cả lớp) ----- */
+/* ----- lớp học (học viên xem tất cả lớp, chia theo chi nhánh) ----- */
 async function vStudentClasses() {
   V.innerHTML = `<p class="muted">Đang tải...</p>`;
   const list = await api("GET", "/classes/catalog");
-  V.innerHTML = pageHead("Lớp học") +
-    `<p class="muted">Tất cả các lớp trên hệ thống (${list.length} lớp).</p>
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">` +
-    list.map((c) => `<div class="card"><h3>${esc(c.name)}</h3>
-      <div class="muted">${esc(c.branch_name)} · ${esc(c.schedule || "—")}${c.room ? " · " + esc(c.room) : ""}</div>
+  const me = await api("GET", "/students/me").catch(() => null);
+  const card = (c) => `<div class="card"><h3>${esc(c.name)}${me && Number(me.class_id) === c.id ? ` <span class="badge b-paid">Lớp của bạn</span>` : ""}</h3>
+      <div class="muted">${esc(c.schedule || "—")}${c.room ? " · " + esc(c.room) : ""}</div>
       <div class="row spread" style="margin-top:.5rem"><span>${c.active_students} HV đang học</span>
       ${c.status !== "active" ? `<span class="muted">(tạm ngưng)</span>` : ""}</div>
-      ${c.coaches.length ? `<div class="muted">HLV: ${c.coaches.map((h) => `${esc(h.name)}${h.belt_level ? ` — 🥋 ${esc(h.belt_level)}` : ""}`).join("; ")}</div>` : ""}</div>`).join("") +
-    `</div>`;
+      ${c.coaches.length ? `<div class="muted">HLV: ${c.coaches.map((h) => `${esc(h.name)}${h.belt_level ? ` — 🥋 ${esc(h.belt_level)}` : ""}`).join("; ")}</div>` : ""}</div>`;
+  const sections = S.branches.map((b) => {
+    const cls = list.filter((c) => c.branch_id === b.id);
+    if (!cls.length) return "";
+    return `<div class="row spread" style="margin:1.1rem 0 .2rem"><h3 style="margin:0">🏢 ${esc(b.name)}</h3></div>
+      ${b.address ? `<p class="muted" style="margin:.1rem 0 .4rem">${esc(b.address)}</p>` : ""}
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">${cls.map(card).join("")}</div>`;
+  }).join("");
+  V.innerHTML = pageHead("Lớp học") +
+    `<p class="muted">Tất cả các lớp trên hệ thống (${list.length} lớp).</p>` +
+    (sections || `<p class="muted">Chưa có lớp nào.</p>`);
 }
 
 /* ----- fees ----- */
