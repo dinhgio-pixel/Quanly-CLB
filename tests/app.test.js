@@ -722,4 +722,17 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.ok(u.branch_ids.includes(1) && u.branch_ids.includes(bid));
     assert.deepEqual(u.class_ids, [2]);
   });
+
+  it("tạo lớp ở chi nhánh khác; GET /classes không lọc trả lớp mọi chi nhánh", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const br = await request(app).post("/api/branches").set(auth).send({ name: "Chi nhánh Lớp Test", kind: "club" });
+    assert.equal(br.status, 201);
+    const nc = await request(app).post("/api/classes").set(auth).send({
+      branch_id: br.body.id, name: "Lớp Mới CN2", schedule: "T7 9:00-10:30", room: "Sân 1", monthly_fee: 300000 });
+    assert.equal(nc.status, 201);
+    assert.equal(nc.body.branch_id, br.body.id);
+    const all = await request(app).get("/api/classes").set(auth);
+    assert.ok(all.body.some((c) => c.id === nc.body.id));
+    assert.ok(all.body.some((c) => c.branch_id === 1));
+  });
 });

@@ -366,30 +366,44 @@ window.branchDel = async (id) => {
 
 /* ----- classes ----- */
 async function vClasses() {
-  // HLV thấy tất cả lớp đang hoạt động: lớp mình dạy thì làm việc bình thường, lớp khác chỉ xem
-  let extra = [];
+  // Hiện lớp theo từng chi nhánh. HLV: lớp mình dạy bấm vào làm việc được, lớp khác chỉ xem
+  const all = await api("GET", "/classes").catch(() => S.classes);
+  const mineIds = new Set(all.map((c) => c.id));
+  let extras = [];
   if (isCoach()) {
     const cat = await api("GET", "/classes/catalog").catch(() => []);
-    const mine = new Set(S.classes.map((c) => c.id));
-    extra = cat.filter((c) => !mine.has(c.id) && c.status === "active");
+    extras = cat.filter((c) => !mineIds.has(c.id) && c.status === "active");
   }
-  V.innerHTML = pageHead("Lớp học", isAdmin() ? `<button class="btn" onclick="classForm()">+ Thêm lớp</button>` : "") +
-    `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">` +
-    S.classes.map((c) => `<div class="card"><h3><a href="#/classes/${c.id}">${esc(c.name)}</a></h3>
-      <div class="muted">${esc(c.schedule)}${c.room ? " · " + esc(c.room) : ""}</div>
+  const workCard = (c) => `<div class="card"><h3><a href="#/classes/${c.id}">${esc(c.name)}</a></h3>
+      <div class="muted">${esc(c.schedule || "")}${c.room ? " · " + esc(c.room) : ""}</div>
       <div class="row spread" style="margin-top:.5rem"><span>${c.active_students} HV đang học</span>
       ${isAdmin() ? `<b>${fmtVND(c.monthly_fee)}</b>` : ""}</div>
-      ${c.coaches ? `<div class="muted">HLV: ${esc(c.coaches)}</div>` : ""}</div>`).join("") +
-    extra.map((c) => `<div class="card"><h3>${esc(c.name)}</h3>
-      <div class="muted">${esc(c.branch_name)} · ${esc(c.schedule || "—")}${c.room ? " · " + esc(c.room) : ""}</div>
+      ${c.coaches ? `<div class="muted">HLV: ${esc(c.coaches)}</div>` : ""}</div>`;
+  const viewCard = (c) => `<div class="card"><h3>${esc(c.name)}</h3>
+      <div class="muted">${esc(c.schedule || "—")}${c.room ? " · " + esc(c.room) : ""}</div>
       <div class="row spread" style="margin-top:.5rem"><span>${c.active_students} HV đang học</span><span class="muted">👁 Chỉ xem</span></div>
-      ${c.coaches.length ? `<div class="muted">HLV: ${c.coaches.map((h) => esc(h.name)).join(", ")}</div>` : ""}</div>`).join("") +
-    `</div>` +
-    (S.classes.length + extra.length ? "" : `<p class="muted">Chưa có lớp nào.</p>`);
+      ${c.coaches && c.coaches.length ? `<div class="muted">HLV: ${c.coaches.map((h) => esc(h.name)).join(", ")}</div>` : ""}</div>`;
+  const sections = S.branches.map((b) => {
+    const cards = [
+      ...all.filter((c) => c.branch_id === b.id).map(workCard),
+      ...extras.filter((c) => c.branch_id === b.id).map(viewCard),
+    ].join("");
+    return `<div class="row spread" style="margin:1.1rem 0 .2rem"><h3 style="margin:0">🏢 ${esc(b.name)}</h3>
+      ${isAdmin() ? `<button class="btn small" onclick="classForm(null,${b.id})">+ Thêm lớp</button>` : ""}</div>
+      ${b.address ? `<p class="muted" style="margin:.1rem 0 .4rem">${esc(b.address)}</p>` : ""}
+      ${cards ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">${cards}</div>`
+              : `<p class="muted">Chưa có lớp nào ở chi nhánh này.</p>`}`;
+  }).join("");
+  V.innerHTML = pageHead("Lớp học") + (sections || `<p class="muted">Chưa có chi nhánh nào.</p>`);
 }
-window.classForm = async (id) => {
-  const c = id ? S.classes.find((x) => x.id === id) : {};
+window.classForm = async (id, presetBranchId) => {
+  let c = {};
+  if (id) c = S.classes.find((x) => x.id === id) || await api("GET", "/classes/" + id).catch(() => ({}));
+  const selBranch = id ? (c.branch_id || S.branchId) : (presetBranchId || S.branchId);
   openModal(`<h3>${id ? "Sửa" : "Thêm"} lớp học</h3><form id="f">
+    <label>Chi nhánh</label><select name="branch_id">
+      ${S.branches.map((b) => `<option value="${b.id}" ${selBranch === b.id ? "selected" : ""}>${esc(b.name)}</option>`).join("")}
+    </select>
     <label>Tên lớp</label><input name="name" value="${esc(c.name || "")}" required>
     <label>Lịch học</label><input name="schedule" value="${esc(c.schedule || "")}" placeholder="VD: T2/4/6 17:00–18:30">
     <label>Phòng / Tầng</label><input name="room" value="${esc(c.room || "")}">
@@ -398,7 +412,7 @@ window.classForm = async (id) => {
     ${id ? `<button type="button" class="btn danger" onclick="classDel(${id})">Xóa</button>` : ""}</div></form>`);
   $("#f").onsubmit = async (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
-    const body = { branch_id: S.branchId, name: fd.get("name"), schedule: fd.get("schedule"), room: fd.get("room"), monthly_fee: fd.get("monthly_fee") };
+    const body = { branch_id: fd.get("branch_id"), name: fd.get("name"), schedule: fd.get("schedule"), room: fd.get("room"), monthly_fee: fd.get("monthly_fee") };
     try {
       if (id) await api("PUT", "/classes/" + id, body); else await api("POST", "/classes", body);
       closeModal(); await refreshLookups(); vClasses(); toast("Đã lưu");
