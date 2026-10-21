@@ -29,9 +29,13 @@ function createApp() {
   // 404 cho API lạ
   app.use("/api", (req, res) => res.status(404).json({ error: "API không tồn tại" }));
 
-  // Frontend tĩnh (SPA)
+  // Frontend tĩnh (SPA) — JS/CSS/HTML luôn kiểm tra bản mới, tránh người dùng thấy giao diện cũ sau mỗi lần cập nhật
   const pub = path.join(__dirname, "..", "public");
-  app.use(express.static(pub));
+  app.use(express.static(pub, {
+    setHeaders(res, filePath) {
+      if (/\.(js|css|html)$/.test(filePath)) res.setHeader("Cache-Control", "no-cache");
+    },
+  }));
   app.get("*", (req, res) => res.sendFile(path.join(pub, "index.html")));
 
   // eslint-disable-next-line no-unused-vars

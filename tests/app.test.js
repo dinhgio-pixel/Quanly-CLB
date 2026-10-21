@@ -759,4 +759,17 @@ describe("Quản lý CLB Vovinam (production)", () => {
       .send({ current_password: "matkhau-moi-1", new_password: "hlv123" });
     assert.equal(back.status, 200);
   });
+
+  it("HLV: dữ liệu gom lớp theo chi nhánh đầy đủ + JS không cache cũ", async () => {
+    const cauth = { Authorization: "Bearer " + coachToken };
+    const brs = await request(app).get("/api/branches").set(cauth);
+    assert.equal(brs.status, 200);
+    assert.ok(brs.body.length >= 1);
+    const cls = await request(app).get("/api/classes").set(cauth);
+    assert.ok(cls.body.length >= 1 && cls.body.every((c) => c.branch_id));
+    const cat = await request(app).get("/api/classes/catalog").set(cauth);
+    assert.ok(cat.body.length >= 1 && cat.body.every((c) => c.branch_id));
+    const js = await request(app).get("/js/app.js");
+    assert.match(js.headers["cache-control"] || "", /no-cache/);
+  });
 });
