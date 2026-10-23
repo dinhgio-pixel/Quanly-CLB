@@ -832,4 +832,81 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(sum.body.grandTotal, 3900000 + 500000);
     assert.equal(sum.body.byCategory.salary.total, 3900000);
   });
+
+  it("cho thuê sân: chống trùng lịch thuê + trùng giờ lớp, tự ghi khoản thu", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const MON = "2026-10-26"; // Thứ 2: Kid 1 học 17:00–18:30, Kid 2 không học
+    const revBefore = await request(app).get("/api/payments/revenue/summary?branch_id=1&from=2026-10-01&to=2026-10-31").set(auth);
+    const rentalBefore = revBefore.body.byCategory.rental.total;
+
+    const ok = await request(app).post("/api/rentals").set(auth).send({
+      branch_id: 1, renter_name: "Đội bóng A", rent_date: MON,
+      start_time: "10:00", end_time: "11:00", price_per_hour: 150000 });
+    assert.equal(ok.status, 201);
+    assert.equal(ok.body.total_amount, 150000);
+
+    // trùng lịch thuê khác -> 409
+    const dup = await request(app).post("/api/rentals").set(auth).send({
+      branch_id: 1, renter_name: "Đội B", rent_date: MON,
+      start_time: "10:30", end_time: "11:30", price_per_hour: 150000 });
+    assert.equal(dup.status, 409);
+    assert.match(dup.body.error, /Trùng lịch/);
+
+    // trùng giờ học Kid 1 (T2 17:00–18:30) -> 409
+    const dupClass = await request(app).post("/api/rentals").set(auth).send({
+      branch_id: 1, renter_name: "Đội C", rent_date: MON,
+      start_time: "17:30", end_time: "18:30", price_per_hour: 150000 });
+    assert.equal(dupClass.status, 409);
+    assert.match(dupClass.body.error, /Kid 1/);
+
+    // ngày Chủ nhật không có lớp -> khung bận trống; Thứ 2 có Kid 1 + Chuyên sâu
+    const dayMon = await request(app).get(`/api/rentals/day?branch_id=1&date=${MON}`).set(auth);
+    assert.ok(dayMon.body.busy_classes.some((c) => /Kid 1/.test(c.name)));
+    const daySun = await request(app).get("/api/rentals/day?branch_id=1&date=2026-10-25").set(auth);
+    assert.equal(daySun.body.busy_classes.length, 0);
+
+    // khoản thu rental đã vào sổ
+    const revAfter = await request(app).get("/api/payments/revenue/summary?branch_id=1&from=2026-10-01&to=2026-10-31").set(auth);
+    assert.equal(revAfter.body.byCategory.rental.total, rentalBefore + 150000);
+  });
+
+  it("dạy 1:1: chống trùng lịch HLV, tự ghi thu + giờ lương thỏa thuận, hủy gỡ cả hai", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const hlv = await request(app).post("/api/auth/login").send({ username: "hlv_test", password: "hlv123" });
+    const coaches = await request(app).get("/api/users").set(auth);
+    const coachId = coaches.body.find((u) => u.username === "hlv_test").id;
+    const MON = "2026-10-26"; // hlv_test dạy Kid 1 (lớp 2) T2 17:00–18:30
+
+    // trùng giờ lớp của HLV -> 409
+    const dupClass = await request(app).post("/api/private-sessions").set(auth).send({
+      branch_id: 1, coach_id: coachId, student_name: "Bạn X", session_date: MON,
+      start_time: "18:00", end_time: "19:00", fee: 300000 });
+    assert.equal(dupClass.status, 409);
+
+    const revBefore = await request(app).get("/api/payments/revenue/summary?branch_id=1&from=2026-10-01&to=2026-10-31").set(auth);
+    const privBefore = revBefore.body.byCategory.private.total;
+
+    const ok = await request(app).post("/api/private-sessions").set(auth).send({
+      branch_id: 1, coach_id: coachId, student_name: "Bạn Y", session_date: MON,
+      start_time: "20:00", end_time: "21:00", fee: 300000, pay_hours: 1 });
+    assert.equal(ok.status, 201);
+    assert.ok(ok.body.payment_id);
+    assert.ok(ok.body.timesheet_id);
+
+    // buổi thứ hai trùng giờ buổi đầu -> 409
+    const dup = await request(app).post("/api/private-sessions").set(auth).send({
+      branch_id: 1, coach_id: coachId, student_name: "Bạn Z", session_date: MON,
+      start_time: "20:30", end_time: "21:30", fee: 200000 });
+    assert.equal(dup.status, 409);
+
+    const revMid = await request(app).get("/api/payments/revenue/summary?branch_id=1&from=2026-10-01&to=2026-10-31").set(auth);
+    assert.equal(revMid.body.byCategory.private.total, privBefore + 300000);
+
+    // hủy buổi -> gỡ khoản thu
+    const cancel = await request(app).put(`/api/private-sessions/${ok.body.id}`).set(auth).send({ status: "cancelled" });
+    assert.equal(cancel.status, 200);
+    assert.equal(cancel.body.payment_id, null);
+    const revEnd = await request(app).get("/api/payments/revenue/summary?branch_id=1&from=2026-10-01&to=2026-10-31").set(auth);
+    assert.equal(revEnd.body.byCategory.private.total, privBefore);
+  });
 });

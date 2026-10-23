@@ -114,6 +114,7 @@ const NAV = [
   ["#/directory", "🔍", "Tra cứu"],
   ["#/fees", "💰", "Thu phí"],
   ["#/payroll", "💵", "Lương HLV", true],
+  ["#/activities", "🏟️", "Hoạt động", true],
   ["#/profile", "👤", "Hồ sơ", false, "coach"],
   ["#/former-students", "🗂️", "Học viên cũ", true],
   ["#/packages", "📦", "Gói học", true],
@@ -1257,6 +1258,144 @@ window.expenseDel = async (id) => {
   catch (err) { toast(err.message); }
 };
 
+/* ----- hoạt động: cho thuê sân + dạy 1:1 ----- */
+let actTab = "rent", actDate = null, actMonth = null, actCoaches = null;
+let ACT_RENTALS = [], ACT_PRIVATES = [];
+const fmtMin = (mins) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+async function vActivities() {
+  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
+  if (!actCoaches) {
+    const users = await api("GET", "/users").catch(() => []);
+    actCoaches = users.filter((u) => u.role === "coach" && u.status === "active");
+  }
+  actDate = actDate || todayInput();
+  actMonth = actMonth || todayInput().slice(0, 7);
+  V.innerHTML = pageHead("Hoạt động") +
+    `<div class="row" style="margin-bottom:.6rem">
+       <button class="btn ${actTab === "rent" ? "" : "ghost"}" onclick="actTab='rent';vActivities()">🏟️ Cho thuê sân</button>
+       <button class="btn ${actTab === "private" ? "" : "ghost"}" onclick="actTab='private';vActivities()">🥋 Dạy 1:1</button>
+     </div><div id="actBody"><p class="muted">Đang tải...</p></div>`;
+  if (actTab === "rent") await actRentView(); else await actPrivateView();
+}
+async function actRentView() {
+  const day = await api("GET", `/rentals/day?branch_id=${S.branchId}&date=${actDate}`);
+  ACT_RENTALS = day.rentals;
+  const busy = [
+    ...day.busy_classes.map((c) => ({ t: `${fmtMin(c.start)}–${fmtMin(c.end)}`, label: `Lớp ${c.name}`, kind: "class" })),
+    ...day.rentals.map((r) => ({ t: `${r.start_time}–${r.end_time}`, label: `Thuê: ${r.renter_name || "khách"}`, kind: "rent" })),
+  ].sort((a, b) => a.t.localeCompare(b.t));
+  $("#actBody").innerHTML = `
+  <div class="card"><div class="row"><label style="margin:0">Ngày xem lịch</label>
+    <input type="date" id="actDateInp" value="${actDate}" style="width:auto">
+    <button class="btn" onclick="actDate=document.getElementById('actDateInp').value;actRentView()">Xem</button>
+    <button class="btn" onclick="rentalForm()" style="margin-left:auto">+ Book lịch thuê</button></div>
+    <h3 style="margin:.8rem 0 .3rem">Khung giờ đã bận ngày ${fmtDate(actDate)}</h3>
+    ${busy.length ? busy.map((x) => `<div class="att-row"><div class="nm"><b>${esc(x.t)}</b> — ${esc(x.label)}</div><span class="muted">${x.kind === "class" ? "Giờ học cố định" : "Đã cho thuê"}</span></div>`).join("") : `<p class="muted">Chưa có lớp học hay lịch thuê nào — sân trống cả ngày.</p>`}
+  </div>
+  <div class="card"><h3>Lịch thuê trong ngày</h3>
+  ${ACT_RENTALS.length ? `<div class="tbl-wrap"><table><tr><th>Giờ</th><th>Khách thuê</th><th>HLV phụ trách</th><th style="text-align:right">Giá/giờ</th><th style="text-align:right">Thành tiền</th><th></th></tr>
+    ${ACT_RENTALS.map((r) => `<tr><td><b>${esc(r.start_time)}–${esc(r.end_time)}</b></td><td>${esc(r.renter_name || "—")}${r.renter_phone ? `<br><span class="muted">${esc(r.renter_phone)}</span>` : ""}</td>
+    <td class="muted">${esc(r.coach_name || "—")}</td>
+    <td style="text-align:right">${fmtVND(r.price_per_hour)}</td><td style="text-align:right"><b>${fmtVND(r.total_amount)}</b></td>
+    <td><div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="rentalForm(${r.id})">Sửa</button>
+    <button class="btn small danger" onclick="rentalDel(${r.id})">Xóa</button></div></td></tr>`).join("")}</table></div>`
+    : `<p class="muted">Chưa có lịch thuê nào trong ngày này.</p>`}
+  <p class="muted">Khi lưu, hệ thống tự ghi khoản thu "Cho thuê" vào sổ và tự báo nếu trùng giờ học của lớp hoặc trùng lịch thuê khác.</p></div>`;
+}
+window.rentalForm = (id) => {
+  const r = id ? (ACT_RENTALS.find((x) => x.id === id) || {}) : {};
+  openModal(`<h3>${id ? "Sửa" : "Book"} lịch thuê sân</h3><form id="f">
+    <label>Tên khách / đơn vị thuê</label><input name="renter_name" value="${esc(r.renter_name || "")}" required>
+    <label>SĐT khách</label><input name="renter_phone" value="${esc(r.renter_phone || "")}">
+    <label>Ngày thuê</label><input name="rent_date" type="date" value="${r.rent_date ? String(r.rent_date).slice(0, 10) : actDate}" required>
+    <div class="row"><div style="flex:1"><label>Giờ bắt đầu</label><input name="start_time" type="time" value="${esc(r.start_time || "")}" required></div>
+    <div style="flex:1"><label>Giờ kết thúc</label><input name="end_time" type="time" value="${esc(r.end_time || "")}" required></div></div>
+    <label>Giá thuê (đ/giờ)</label><input name="price_per_hour" type="number" min="0" value="${r.price_per_hour != null ? r.price_per_hour : ""}" required>
+    <label>HLV phụ trách (nếu có)</label><select name="coach_id"><option value="">— Không gắn —</option>
+    ${(actCoaches || []).map((u) => `<option value="${u.id}" ${r.coach_id === u.id ? "selected" : ""}>${esc(u.full_name || u.username)}</option>`).join("")}</select>
+    ${id ? `<label>Trạng thái</label><select name="status">
+      <option value="booked" ${r.status === "booked" ? "selected" : ""}>Đã đặt</option>
+      <option value="done" ${r.status === "done" ? "selected" : ""}>Đã xong</option>
+      <option value="cancelled" ${r.status === "cancelled" ? "selected" : ""}>Đã hủy (gỡ khoản thu)</option></select>` : ""}
+    <label>Ghi chú</label><input name="note" value="${esc(r.note || "")}">
+    <div class="btnrow"><button class="btn">Lưu lịch thuê</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    const body = { branch_id: S.branchId, renter_name: fd.get("renter_name"), renter_phone: fd.get("renter_phone"),
+      rent_date: fd.get("rent_date"), start_time: fd.get("start_time"), end_time: fd.get("end_time"),
+      price_per_hour: fd.get("price_per_hour"), coach_id: fd.get("coach_id") || null, note: fd.get("note") };
+    if (id) body.status = fd.get("status");
+    try {
+      if (id) await api("PUT", "/rentals/" + id, body); else await api("POST", "/rentals", body);
+      actDate = body.rent_date;
+      closeModal(); toast("Đã lưu lịch thuê"); vActivities();
+    } catch (err) { toast(err.message); }
+  };
+};
+window.rentalDel = async (id) => {
+  if (!await confirmDlg("Xóa lịch thuê này? Khoản thu liên kết cũng sẽ bị gỡ.")) return;
+  try { await api("DELETE", "/rentals/" + id); toast("Đã xóa"); vActivities(); }
+  catch (err) { toast(err.message); }
+};
+async function actPrivateView() {
+  const list = await api("GET", `/private-sessions?branch_id=${S.branchId}&month=${actMonth}`);
+  ACT_PRIVATES = list;
+  const total = list.filter((s) => s.status !== "cancelled").reduce((sum, s) => sum + Number(s.fee || 0), 0);
+  $("#actBody").innerHTML = `
+  <div class="card"><div class="row"><label style="margin:0">Tháng</label>
+    <input type="month" id="actMonthInp" value="${actMonth}" style="width:auto">
+    <button class="btn" onclick="actMonth=document.getElementById('actMonthInp').value;actPrivateView()">Xem</button>
+    <button class="btn" onclick="privateForm()" style="margin-left:auto">+ Thêm buổi 1:1</button></div>
+    <p style="margin:.6rem 0 0">Tổng học phí 1:1 tháng này: <b>${fmtVND(total)}</b> · ${list.filter((s) => s.status !== "cancelled").length} buổi</p></div>
+  <div class="card"><h3>Buổi dạy 1:1 trong tháng</h3>
+  ${list.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Giờ</th><th>Học viên</th><th>HLV</th><th style="text-align:right">Học phí</th><th style="text-align:right">Giờ lương</th><th></th></tr>
+    ${list.map((s) => `<tr${s.status === "cancelled" ? ` style="opacity:.55"` : ""}><td>${fmtDate(s.session_date)}</td><td><b>${esc(s.start_time)}–${esc(s.end_time)}</b></td>
+    <td>${esc(s.student_name || "—")}${s.student_phone ? `<br><span class="muted">${esc(s.student_phone)}</span>` : ""}</td>
+    <td class="muted">${esc(s.coach_name || "—")}</td>
+    <td style="text-align:right"><b>${fmtVND(s.fee)}</b></td>
+    <td style="text-align:right">${s.pay_hours != null ? s.pay_hours + "h" : "—"}</td>
+    <td><div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="privateForm(${s.id})">Sửa</button>
+    <button class="btn small danger" onclick="privateDel(${s.id})">Xóa</button></div></td></tr>`).join("")}</table></div>`
+    : `<p class="muted">Chưa có buổi 1:1 nào trong tháng này.</p>`}
+  <p class="muted">Lưu buổi học sẽ tự ghi khoản thu "Dạy 1:1" cho HLV đó; nếu điền "Giờ tính lương" (theo thỏa thuận) thì hệ thống tự cộng giờ chấm công cho HLV. Trùng lịch của HLV sẽ bị báo ngay.</p></div>`;
+}
+window.privateForm = (id) => {
+  const s = id ? (ACT_PRIVATES.find((x) => x.id === id) || {}) : {};
+  openModal(`<h3>${id ? "Sửa" : "Thêm"} buổi dạy 1:1</h3><form id="f">
+    <label>Huấn luyện viên</label><select name="coach_id" required>
+    ${(actCoaches || []).map((u) => `<option value="${u.id}" ${s.coach_id === u.id ? "selected" : ""}>${esc(u.full_name || u.username)}</option>`).join("")}</select>
+    <label>Tên học viên</label><input name="student_name" value="${esc(s.student_name || "")}" required>
+    <label>SĐT học viên</label><input name="student_phone" value="${esc(s.student_phone || "")}">
+    <label>Ngày dạy</label><input name="session_date" type="date" value="${s.session_date ? String(s.session_date).slice(0, 10) : todayInput()}" required>
+    <div class="row"><div style="flex:1"><label>Giờ bắt đầu</label><input name="start_time" type="time" value="${esc(s.start_time || "")}" required></div>
+    <div style="flex:1"><label>Giờ kết thúc</label><input name="end_time" type="time" value="${esc(s.end_time || "")}" required></div></div>
+    <label>Học phí buổi này (đ)</label><input name="fee" type="number" min="0" value="${s.fee != null ? s.fee : ""}" required>
+    <label>Giờ tính lương cho HLV (theo thỏa thuận — để trống nếu không tính giờ)</label><input name="pay_hours" type="number" min="0" step="0.5" value="${s.pay_hours != null ? s.pay_hours : ""}">
+    ${id ? `<label>Trạng thái</label><select name="status">
+      <option value="done" ${s.status === "done" ? "selected" : ""}>Đã dạy</option>
+      <option value="cancelled" ${s.status === "cancelled" ? "selected" : ""}>Đã hủy (gỡ khoản thu + giờ lương)</option></select>` : ""}
+    <label>Ghi chú</label><input name="note" value="${esc(s.note || "")}">
+    <div class="btnrow"><button class="btn">Lưu buổi học</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    const body = { branch_id: S.branchId, coach_id: fd.get("coach_id"), student_name: fd.get("student_name"),
+      student_phone: fd.get("student_phone"), session_date: fd.get("session_date"),
+      start_time: fd.get("start_time"), end_time: fd.get("end_time"), fee: fd.get("fee"),
+      pay_hours: fd.get("pay_hours"), note: fd.get("note") };
+    if (id) body.status = fd.get("status");
+    try {
+      if (id) await api("PUT", "/private-sessions/" + id, body); else await api("POST", "/private-sessions", body);
+      actMonth = String(body.session_date).slice(0, 7);
+      closeModal(); toast("Đã lưu buổi 1:1"); vActivities();
+    } catch (err) { toast(err.message); }
+  };
+};
+window.privateDel = async (id) => {
+  if (!await confirmDlg("Xóa buổi 1:1 này? Khoản thu và giờ lương liên kết cũng sẽ bị gỡ.")) return;
+  try { await api("DELETE", "/private-sessions/" + id); toast("Đã xóa"); vActivities(); }
+  catch (err) { toast(err.message); }
+};
+
 /* ----- lớp học (học viên xem tất cả lớp, chia theo chi nhánh) ----- */
 async function vStudentClasses() {
   V.innerHTML = `<p class="muted">Đang tải...</p>`;
@@ -1511,6 +1650,7 @@ async function route() {
     else if (seg[0] === "directory") await vDirectory();
     else if (seg[0] === "fees") await vFees();
     else if (seg[0] === "payroll") await vPayroll();
+    else if (seg[0] === "activities") await vActivities();
     else if (seg[0] === "users") await vUsers();
     else await vDashboard();
   } catch (err) {

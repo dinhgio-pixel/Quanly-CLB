@@ -269,3 +269,47 @@ CREATE TABLE IF NOT EXISTS student_delete_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_delreq_branch ON student_delete_requests(branch_id);
 CREATE INDEX IF NOT EXISTS idx_delreq_status ON student_delete_requests(status);
+
+-- Book lịch cho thuê sân: lưu xong tự sinh khoản thu 'rental' (payments) qua payment_id
+CREATE TABLE IF NOT EXISTS rentals (
+  id             SERIAL PRIMARY KEY,
+  branch_id      INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  renter_name    VARCHAR(150) NOT NULL DEFAULT '',
+  renter_phone   VARCHAR(30)  NOT NULL DEFAULT '',
+  rent_date      DATE NOT NULL,
+  start_time     VARCHAR(5) NOT NULL,
+  end_time       VARCHAR(5) NOT NULL,
+  price_per_hour INTEGER NOT NULL DEFAULT 0,
+  total_amount   INTEGER NOT NULL DEFAULT 0,
+  coach_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  status         VARCHAR(20) NOT NULL DEFAULT 'booked'
+                 CHECK (status IN ('booked', 'done', 'cancelled')),
+  payment_id     INTEGER REFERENCES payments(id) ON DELETE SET NULL,
+  note           VARCHAR(300) NOT NULL DEFAULT '',
+  created_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_rentals_branch_date ON rentals(branch_id, rent_date);
+
+-- Buổi dạy 1:1: tự sinh khoản thu 'private' + (nếu có giờ lương thỏa thuận) dòng chấm công
+CREATE TABLE IF NOT EXISTS private_sessions (
+  id           SERIAL PRIMARY KEY,
+  branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  coach_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_name VARCHAR(150) NOT NULL DEFAULT '',
+  student_phone VARCHAR(30) NOT NULL DEFAULT '',
+  session_date DATE NOT NULL,
+  start_time   VARCHAR(5) NOT NULL,
+  end_time     VARCHAR(5) NOT NULL,
+  fee          INTEGER NOT NULL DEFAULT 0,
+  pay_hours    NUMERIC(4,1),
+  payment_id   INTEGER REFERENCES payments(id) ON DELETE SET NULL,
+  timesheet_id INTEGER REFERENCES coach_timesheets(id) ON DELETE SET NULL,
+  status       VARCHAR(20) NOT NULL DEFAULT 'done'
+               CHECK (status IN ('done', 'cancelled')),
+  note         VARCHAR(300) NOT NULL DEFAULT '',
+  created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_private_branch_date ON private_sessions(branch_id, session_date);
+CREATE INDEX IF NOT EXISTS idx_private_coach_date ON private_sessions(coach_id, session_date);
