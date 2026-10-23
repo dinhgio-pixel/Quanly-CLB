@@ -313,3 +313,24 @@ CREATE TABLE IF NOT EXISTS private_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_private_branch_date ON private_sessions(branch_id, session_date);
 CREATE INDEX IF NOT EXISTS idx_private_coach_date ON private_sessions(coach_id, session_date);
+
+-- Sự kiện biểu diễn: tự sinh khoản thu 'performance' + khoản chi 'performance' (nhân sự + chi khác)
+CREATE TABLE IF NOT EXISTS performances (
+  id             SERIAL PRIMARY KEY,
+  branch_id      INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  event_name     VARCHAR(200) NOT NULL DEFAULT '',
+  partner        VARCHAR(200) NOT NULL DEFAULT '',
+  event_date     DATE NOT NULL,
+  personnel      TEXT NOT NULL DEFAULT '',
+  revenue_fee    INTEGER NOT NULL DEFAULT 0,
+  personnel_cost INTEGER NOT NULL DEFAULT 0,
+  other_cost     INTEGER NOT NULL DEFAULT 0,
+  payment_id     INTEGER REFERENCES payments(id) ON DELETE SET NULL,
+  expense_id     INTEGER REFERENCES expenses(id) ON DELETE SET NULL,
+  status         VARCHAR(20) NOT NULL DEFAULT 'done'
+                 CHECK (status IN ('done', 'cancelled')),
+  note           VARCHAR(300) NOT NULL DEFAULT '',
+  created_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_perf_branch_date ON performances(branch_id, event_date);

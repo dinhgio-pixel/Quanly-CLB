@@ -299,6 +299,30 @@ window.exportTimesheets = () => {
   const m = ($("#tsMonth") || {}).value || todayInput().slice(0, 7);
   downloadXlsx(`/export/timesheets?month=${m}&branch_id=${S.branchId}`, `cham-cong-${m}.xlsx`).catch((e) => toast(e.message));
 };
+window.exportFinance = (m) => {
+  downloadXlsx(`/export/finance?branch_id=${S.branchId}&month=${m}`, `bao-cao-tai-chinh-${m}.xlsx`).catch((e) => toast(e.message));
+};
+// Tổng quan mọi chi nhánh trong tháng (chỉ admin) — hiện ở cuối trang Tổng quan
+async function loadDashBranches() {
+  const el = document.getElementById("dashBranches");
+  if (!el) return;
+  const m = todayInput().slice(0, 7);
+  try {
+    const d = await api("GET", `/dashboard/branches?month=${m}`);
+    el.innerHTML = `<div class="card"><h3>🏢 Tổng quan các chi nhánh — tháng ${m.slice(5)}/${m.slice(0, 4)}</h3>
+    <div class="tbl-wrap"><table><tr><th>Chi nhánh</th><th style="text-align:right">HV</th><th style="text-align:right">Lớp</th>
+    <th style="text-align:right">Thu giảng dạy</th><th style="text-align:right">Thu khác</th>
+    <th style="text-align:right">Chi</th><th style="text-align:right">Chênh lệch</th></tr>
+    ${d.branches.map((b) => `<tr><td><b>${esc(b.branch_name)}</b></td>
+      <td style="text-align:right">${b.students}</td><td style="text-align:right">${b.classes}</td>
+      <td style="text-align:right">${fmtVND(b.teaching_revenue)}</td>
+      <td style="text-align:right">${fmtVND(b.other_revenue)}</td>
+      <td style="text-align:right">${fmtVND(b.expenses)}</td>
+      <td style="text-align:right"><b style="color:${b.balance >= 0 ? "var(--ok)" : "var(--bad)"}">${fmtVND(b.balance)}</b></td></tr>`).join("")}
+    </table></div>
+    <p class="muted">Đổi chi nhánh ở thanh trên để xem chi tiết từng nơi. Báo cáo đầy đủ: mục Lương HLV → nút Xuất Excel.</p></div>`;
+  } catch (e) { el.innerHTML = ""; }
+}
 
 /* ----- dashboard ----- */
 async function vDashboard() {
@@ -325,7 +349,9 @@ async function vDashboard() {
     ${d.todaySessions.length ? `<div class="tbl-wrap"><table><tr><th>Lớp</th><th>Lịch</th><th>Điểm danh</th></tr>
       ${d.todaySessions.map((s) => `<tr><td>${esc(s.class_name)}</td><td class="muted">${esc(s.schedule || "")}</td>
       <td><a href="#/attendance?class=${s.class_id || ""}">${s.records} HV</a></td></tr>`).join("")}</table></div>`
-      : `<p class="muted">Chưa tạo buổi điểm danh nào hôm nay.</p>`}</div>`;
+      : `<p class="muted">Chưa tạo buổi điểm danh nào hôm nay.</p>`}</div>
+  ${isAdmin() ? `<div id="dashBranches"></div>` : ""}`;
+  if (isAdmin()) loadDashBranches();
   function feeList(list) {
     if (!list.length) return `<p class="muted">Không có.</p>`;
     return `<div class="tbl-wrap"><table>${list.map((s) =>
@@ -1189,6 +1215,7 @@ async function vPayroll() {
     `<div class="card"><div class="row"><label style="margin:0">Tháng</label>
      <input type="month" id="prMonth" value="${m}" style="width:auto">
      <button class="btn" onclick="payrollMonth=document.getElementById('prMonth').value;vPayroll()">Xem</button>
+     <button class="btn ghost" onclick="exportFinance('${m}')">⬇ Báo cáo tài chính (Excel)</button>
      <span class="muted">Chi nhánh: <b>${esc(bName)}</b> (đổi chi nhánh ở thanh trên cùng)</span></div></div>
      <div id="prBody"><p class="muted">Đang tải...</p></div>`;
   const [pr, exps] = await Promise.all([
@@ -1274,8 +1301,11 @@ async function vActivities() {
     `<div class="row" style="margin-bottom:.6rem">
        <button class="btn ${actTab === "rent" ? "" : "ghost"}" onclick="actTab='rent';vActivities()">🏟️ Cho thuê sân</button>
        <button class="btn ${actTab === "private" ? "" : "ghost"}" onclick="actTab='private';vActivities()">🥋 Dạy 1:1</button>
+       <button class="btn ${actTab === "perf" ? "" : "ghost"}" onclick="actTab='perf';vActivities()">🎭 Biểu diễn</button>
      </div><div id="actBody"><p class="muted">Đang tải...</p></div>`;
-  if (actTab === "rent") await actRentView(); else await actPrivateView();
+  if (actTab === "rent") await actRentView();
+  else if (actTab === "private") await actPrivateView();
+  else await actPerfView();
 }
 async function actRentView() {
   const day = await api("GET", `/rentals/day?branch_id=${S.branchId}&date=${actDate}`);
@@ -1393,6 +1423,66 @@ window.privateForm = (id) => {
 window.privateDel = async (id) => {
   if (!await confirmDlg("Xóa buổi 1:1 này? Khoản thu và giờ lương liên kết cũng sẽ bị gỡ.")) return;
   try { await api("DELETE", "/private-sessions/" + id); toast("Đã xóa"); vActivities(); }
+  catch (err) { toast(err.message); }
+};
+let ACT_PERFS = [];
+async function actPerfView() {
+  const list = await api("GET", `/performances?branch_id=${S.branchId}&month=${actMonth}`);
+  ACT_PERFS = list;
+  const live = list.filter((p) => p.status !== "cancelled");
+  const sumRev = live.reduce((s, p) => s + Number(p.revenue_fee || 0), 0);
+  const sumProfit = live.reduce((s, p) => s + Number(p.profit || 0), 0);
+  $("#actBody").innerHTML = `
+  <div class="card"><div class="row"><label style="margin:0">Tháng</label>
+    <input type="month" id="actMonthInp" value="${actMonth}" style="width:auto">
+    <button class="btn" onclick="actMonth=document.getElementById('actMonthInp').value;actPerfView()">Xem</button>
+    <button class="btn" onclick="perfForm()" style="margin-left:auto">+ Thêm sự kiện biểu diễn</button></div>
+    <p style="margin:.6rem 0 0">Tổng thu biểu diễn tháng này: <b>${fmtVND(sumRev)}</b> · Lãi sau chi phí: <b style="color:${sumProfit >= 0 ? "var(--ok)" : "var(--bad)"}">${fmtVND(sumProfit)}</b> · ${live.length} sự kiện</p></div>
+  <div class="card"><h3>Sự kiện biểu diễn trong tháng</h3>
+  ${list.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Sự kiện</th><th>Nhân sự</th><th style="text-align:right">Thu</th><th style="text-align:right">Chi nhân sự</th><th style="text-align:right">Chi khác</th><th style="text-align:right">Lãi</th><th></th></tr>
+    ${list.map((p) => `<tr${p.status === "cancelled" ? ` style="opacity:.55"` : ""}><td>${fmtDate(p.event_date)}</td>
+    <td><b>${esc(p.event_name || "—")}</b>${p.partner ? `<br><span class="muted">${esc(p.partner)}</span>` : ""}</td>
+    <td class="muted">${esc(p.personnel || "—")}</td>
+    <td style="text-align:right">${fmtVND(p.revenue_fee)}</td>
+    <td style="text-align:right">${fmtVND(p.personnel_cost)}</td>
+    <td style="text-align:right">${fmtVND(p.other_cost)}</td>
+    <td style="text-align:right"><b style="color:${p.profit >= 0 ? "var(--ok)" : "var(--bad)"}">${fmtVND(p.profit)}</b></td>
+    <td><div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="perfForm(${p.id})">Sửa</button>
+    <button class="btn small danger" onclick="perfDel(${p.id})">Xóa</button></div></td></tr>`).join("")}</table></div>`
+    : `<p class="muted">Chưa có sự kiện biểu diễn nào trong tháng này.</p>`}
+  <p class="muted">Lưu sự kiện sẽ tự ghi khoản thu "Biểu diễn" và khoản chi (nhân sự + chi khác) vào sổ tài chính của chi nhánh.</p></div>`;
+}
+window.perfForm = (id) => {
+  const p = id ? (ACT_PERFS.find((x) => x.id === id) || {}) : {};
+  openModal(`<h3>${id ? "Sửa" : "Thêm"} sự kiện biểu diễn</h3><form id="f">
+    <label>Tên sự kiện</label><input name="event_name" value="${esc(p.event_name || "")}" required>
+    <label>Đơn vị tổ chức / đối tác</label><input name="partner" value="${esc(p.partner || "")}">
+    <label>Ngày biểu diễn</label><input name="event_date" type="date" value="${p.event_date ? String(p.event_date).slice(0, 10) : todayInput()}" required>
+    <label>Nhân sự tham gia (ghi tên, cách nhau dấu phẩy)</label><input name="personnel" value="${esc(p.personnel || "")}">
+    <label>Phí thu từ đối tác (đ)</label><input name="revenue_fee" type="number" min="0" value="${p.revenue_fee != null ? p.revenue_fee : ""}">
+    <label>Chi phí nhân sự (đ)</label><input name="personnel_cost" type="number" min="0" value="${p.personnel_cost != null ? p.personnel_cost : ""}">
+    <label>Chi phí khác (đ) — đi lại, trang phục...</label><input name="other_cost" type="number" min="0" value="${p.other_cost != null ? p.other_cost : ""}">
+    ${id ? `<label>Trạng thái</label><select name="status">
+      <option value="done" ${p.status === "done" ? "selected" : ""}>Đã diễn</option>
+      <option value="cancelled" ${p.status === "cancelled" ? "selected" : ""}>Đã hủy (gỡ cả thu và chi)</option></select>` : ""}
+    <label>Ghi chú</label><input name="note" value="${esc(p.note || "")}">
+    <div class="btnrow"><button class="btn">Lưu sự kiện</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    const body = { branch_id: S.branchId, event_name: fd.get("event_name"), partner: fd.get("partner"),
+      event_date: fd.get("event_date"), personnel: fd.get("personnel"), revenue_fee: fd.get("revenue_fee"),
+      personnel_cost: fd.get("personnel_cost"), other_cost: fd.get("other_cost"), note: fd.get("note") };
+    if (id) body.status = fd.get("status");
+    try {
+      if (id) await api("PUT", "/performances/" + id, body); else await api("POST", "/performances", body);
+      actMonth = String(body.event_date).slice(0, 7);
+      closeModal(); toast("Đã lưu sự kiện"); vActivities();
+    } catch (err) { toast(err.message); }
+  };
+};
+window.perfDel = async (id) => {
+  if (!await confirmDlg("Xóa sự kiện này? Khoản thu và khoản chi liên kết cũng sẽ bị gỡ.")) return;
+  try { await api("DELETE", "/performances/" + id); toast("Đã xóa"); vActivities(); }
   catch (err) { toast(err.message); }
 };
 

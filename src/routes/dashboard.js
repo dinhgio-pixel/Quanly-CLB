@@ -93,4 +93,42 @@ router.get("/", async (req, res) => {
   }
 });
 
+// Tổng quan TẤT CẢ chi nhánh trong 1 tháng (chỉ admin): doanh thu tách giảng dạy/khác, chi, chênh lệch
+router.get("/branches", async (req, res) => {
+  if (req.user.role !== "admin") return res.status(403).json({ error: "Chỉ dành cho quản trị viên" });
+  const month = String(req.query.month || todayStr().slice(0, 7));
+  const [y, mo] = month.split("-").map(Number);
+  if (!y || !mo || mo < 1 || mo > 12) return res.status(400).json({ error: "Tháng không hợp lệ (YYYY-MM)" });
+  const start = `${month}-01`;
+  const end = mo === 12 ? `${y + 1}-01-01` : `${y}-${String(mo + 1).padStart(2, "0")}-01`;
+  const branches = (await db.query("SELECT id, name, kind FROM branches ORDER BY id")).rows;
+  const out = [];
+  for (const b of branches) {
+    const st = await db.query(
+      `SELECT COUNT(*)::int AS n FROM students WHERE branch_id = $1 AND status = 'active'`, [b.id]);
+    const cl = await db.query(
+      `SELECT COUNT(*)::int AS n FROM classes WHERE branch_id = $1 AND status = 'active'`, [b.id]);
+    const rev = await db.query(
+      `SELECT category, COALESCE(SUM(amount), 0)::bigint AS total FROM payments
+       WHERE branch_id = $1 AND paid_on >= $2 AND paid_on < $3 GROUP BY category`, [b.id, start, end]);
+    let teaching = 0, other = 0;
+    for (const r of rev.rows) {
+      if (r.category === "tuition" || r.category === "private") teaching += Number(r.total);
+      else other += Number(r.total);
+    }
+    const exp = await db.query(
+      `SELECT COALESCE(SUM(amount), 0)::bigint AS total FROM expenses
+       WHERE branch_id = $1 AND paid_on >= $2 AND paid_on < $3`, [b.id, start, end]);
+    const expenses = Number(exp.rows[0].total);
+    out.push({
+      branch_id: b.id, branch_name: b.name, kind: b.kind,
+      students: st.rows[0].n, classes: cl.rows[0].n,
+      teaching_revenue: teaching, other_revenue: other,
+      total_revenue: teaching + other, expenses,
+      balance: teaching + other - expenses,
+    });
+  }
+  res.json({ month, branches: out });
+});
+
 module.exports = router;

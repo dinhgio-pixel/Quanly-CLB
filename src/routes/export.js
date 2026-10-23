@@ -180,4 +180,115 @@ router.get("/timesheets", requireRole("admin"), async (req, res) => {
   sendXlsx(res, wb, `cham-cong-${month}.xlsx`);
 });
 
+// --- Báo cáo tài chính tháng theo chi nhánh (chỉ admin) ---
+const { computePayroll } = require("./payroll");
+const REV_LABEL = { tuition: "Học phí lớp", private: "Dạy 1:1", rental: "Cho thuê", performance: "Biểu diễn", other: "Thu khác" };
+const EXP_LABEL_X = { salary: "Lương HLV", performance: "Chi phí biểu diễn", other: "Chi khác" };
+const PAY_TYPE_LABEL_X = { hourly: "Theo giờ", fixed: "Cố định tháng", revenue_share: "% doanh thu giảng dạy" };
+const dFmt = (d) => String(d).slice(0, 10).split("-").reverse().join("/");
+
+router.get("/finance", requireRole("admin"), async (req, res) => {
+  const month = req.query.month || todayStr().slice(0, 7);
+  const branchId = Number(req.query.branch_id);
+  if (!branchId) return res.status(400).json({ error: "Thiếu chi nhánh" });
+  const [y, mo] = month.split("-").map(Number);
+  if (!y || !mo || mo < 1 || mo > 12) return res.status(400).json({ error: "Tháng không hợp lệ" });
+  const start = `${month}-01`;
+  const end = mo === 12 ? `${y + 1}-01-01` : `${y}-${String(mo + 1).padStart(2, "0")}-01`;
+  const br = await db.query("SELECT name FROM branches WHERE id = $1", [branchId]);
+  const branchName = br.rows[0] ? br.rows[0].name : `Chi nhánh ${branchId}`;
+
+  const pays = (await db.query(
+    `SELECT p.*, s.full_name AS student_name, cu.full_name AS coach_name
+     FROM payments p LEFT JOIN students s ON s.id = p.student_id
+     LEFT JOIN users cu ON cu.id = p.coach_id
+     WHERE p.branch_id = $1 AND p.paid_on >= $2 AND p.paid_on < $3
+     ORDER BY p.paid_on, p.id`, [branchId, start, end])).rows;
+  const exps = (await db.query(
+    `SELECT e.*, cu.full_name AS coach_name FROM expenses e
+     LEFT JOIN users cu ON cu.id = e.coach_id
+     WHERE e.branch_id = $1 AND e.paid_on >= $2 AND e.paid_on < $3
+     ORDER BY e.paid_on, e.id`, [branchId, start, end])).rows;
+  const rents = (await db.query(
+    `SELECT * FROM rentals WHERE branch_id = $1 AND rent_date >= $2 AND rent_date < $3
+     ORDER BY rent_date, start_time`, [branchId, start, end])).rows;
+  const payroll = await computePayroll(branchId, month);
+
+  const revByCat = {}, expByCat = {};
+  let totalRev = 0, totalExp = 0;
+  for (const p of pays) { revByCat[p.category] = (revByCat[p.category] || 0) + Number(p.amount); totalRev += Number(p.amount); }
+  for (const e of exps) { expByCat[e.category] = (expByCat[e.category] || 0) + Number(e.amount); totalExp += Number(e.amount); }
+  const teaching = (revByCat.tuition || 0) + (revByCat.private || 0);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "CLB Vovinam";
+
+  // Sheet 1: Tổng hợp
+  const ws = wb.addWorksheet("Tong hop");
+  titleRow(ws, `BÁO CÁO TÀI CHÍNH THÁNG ${month} — ${branchName}`.toUpperCase(), 2);
+  ws.addRow([]);
+  styleHeader(ws.addRow(["Khoản mục", "Số tiền (đ)"]));
+  ws.addRow(["— DOANH THU —", ""]);
+  for (const k of Object.keys(REV_LABEL)) ws.addRow([REV_LABEL[k], revByCat[k] || 0]);
+  ws.addRow(["Tổng thu", totalRev]);
+  ws.addRow(["Trong đó: hoạt động giảng dạy (học phí lớp + dạy 1:1)", teaching]);
+  ws.addRow(["— CHI PHÍ —", ""]);
+  for (const k of Object.keys(EXP_LABEL_X)) ws.addRow([EXP_LABEL_X[k], expByCat[k] || 0]);
+  ws.addRow(["Tổng chi", totalExp]);
+  ws.addRow(["CHÊNH LỆCH THU − CHI", totalRev - totalExp]);
+  ws.addRow(["Tổng lương HLV (bảng lương)", payroll.totals ? payroll.totals.total_salary : 0]);
+  ws.addRow(["Tỷ trọng lương / doanh thu giảng dạy (%)", payroll.totals ? payroll.totals.ratio : ""]);
+  ws.columns = [{ width: 52 }, { width: 20 }];
+  ws.eachRow((r) => r.eachCell((c) => { if (typeof c.value === "number") c.numFmt = "#,##0"; }));
+  styleBody(ws);
+
+  // Sheet 2: Chi tiết thu
+  const ws2 = wb.addWorksheet("Chi tiet thu");
+  titleRow(ws2, `CHI TIẾT KHOẢN THU THÁNG ${month}`.toUpperCase(), 4);
+  ws2.addRow([]);
+  styleHeader(ws2.addRow(["Ngày", "Nhóm", "Nội dung", "Số tiền (đ)"]));
+  pays.forEach((p) => ws2.addRow([dFmt(p.paid_on), REV_LABEL[p.category] || p.category,
+    p.student_name || p.note || "", Number(p.amount)]));
+  ws2.addRow(["", "", "Tổng thu", totalRev]);
+  ws2.columns = [{ width: 13 }, { width: 16 }, { width: 50 }, { width: 18 }];
+  styleBody(ws2);
+
+  // Sheet 3: Chi tiết chi
+  const ws3 = wb.addWorksheet("Chi tiet chi");
+  titleRow(ws3, `CHI TIẾT KHOẢN CHI THÁNG ${month}`.toUpperCase(), 4);
+  ws3.addRow([]);
+  styleHeader(ws3.addRow(["Ngày", "Nhóm", "Nội dung", "Số tiền (đ)"]));
+  exps.forEach((e) => ws3.addRow([dFmt(e.paid_on), EXP_LABEL_X[e.category] || e.category,
+    (e.note || "") + (e.coach_name ? ` — ${e.coach_name}` : ""), Number(e.amount)]));
+  ws3.addRow(["", "", "Tổng chi", totalExp]);
+  ws3.columns = [{ width: 13 }, { width: 20 }, { width: 55 }, { width: 18 }];
+  styleBody(ws3);
+
+  // Sheet 4: Bảng lương
+  const ws4 = wb.addWorksheet("Bang luong");
+  titleRow(ws4, `BẢNG LƯƠNG HLV THÁNG ${month}`.toUpperCase(), 7);
+  ws4.addRow([]);
+  styleHeader(ws4.addRow(["HLV", "Kiểu trả", "Giờ dạy", "Thu dạy 1:1", "Phân bổ học phí lớp", "Lương (đ)", "Đã chốt"]));
+  (payroll.rows || []).forEach((r) => ws4.addRow([
+    r.coach_name, PAY_TYPE_LABEL_X[r.pay_type] || r.pay_type, r.hours,
+    r.private_revenue, r.tuition_share, r.salary == null ? "" : r.salary, r.settled ? "Đã chốt" : "Chưa chốt",
+  ]));
+  ws4.addRow(["", "", "", "", "Tổng lương", payroll.totals ? payroll.totals.total_salary : 0, ""]);
+  ws4.columns = [{ width: 28 }, { width: 20 }, { width: 10 }, { width: 16 }, { width: 20 }, { width: 16 }, { width: 12 }];
+  styleBody(ws4);
+
+  // Sheet 5: Cho thuê
+  const ws5 = wb.addWorksheet("Cho thue");
+  titleRow(ws5, `LỊCH CHO THUÊ THÁNG ${month}`.toUpperCase(), 6);
+  ws5.addRow([]);
+  styleHeader(ws5.addRow(["Ngày", "Khách thuê", "Giờ", "Giá/giờ (đ)", "Thành tiền (đ)", "Trạng thái"]));
+  rents.forEach((r) => ws5.addRow([dFmt(r.rent_date), r.renter_name || "",
+    `${r.start_time}–${r.end_time}`, Number(r.price_per_hour), Number(r.total_amount),
+    r.status === "cancelled" ? "Đã hủy" : r.status === "done" ? "Đã xong" : "Đã đặt"]));
+  ws5.columns = [{ width: 13 }, { width: 30 }, { width: 14 }, { width: 15 }, { width: 16 }, { width: 12 }];
+  styleBody(ws5);
+
+  sendXlsx(res, wb, `bao-cao-tai-chinh-${slug(branchName)}-${month}.xlsx`);
+});
+
 module.exports = router;

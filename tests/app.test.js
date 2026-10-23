@@ -909,4 +909,44 @@ describe("Quản lý CLB Vovinam (production)", () => {
     const revEnd = await request(app).get("/api/payments/revenue/summary?branch_id=1&from=2026-10-01&to=2026-10-31").set(auth);
     assert.equal(revEnd.body.byCategory.private.total, privBefore);
   });
+
+  it("biểu diễn: ghi 1 lần tự sinh thu + chi, lãi đúng; tổng quan chi nhánh + xuất Excel tài chính", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const revBefore = await request(app).get("/api/payments/revenue/summary?branch_id=1&from=2026-10-01&to=2026-10-31").set(auth);
+    const perfBefore = revBefore.body.byCategory.performance.total;
+
+    const ev = await request(app).post("/api/performances").set(auth).send({
+      branch_id: 1, event_name: "Khai trương TTTM", partner: "TTTM A",
+      event_date: "2026-10-15", personnel: "HLV A, HV B",
+      revenue_fee: 2000000, personnel_cost: 500000, other_cost: 100000 });
+    assert.equal(ev.status, 201);
+    assert.equal(ev.body.profit, 1400000);
+    assert.ok(ev.body.payment_id && ev.body.expense_id);
+
+    const revMid = await request(app).get("/api/payments/revenue/summary?branch_id=1&from=2026-10-01&to=2026-10-31").set(auth);
+    assert.equal(revMid.body.byCategory.performance.total, perfBefore + 2000000);
+    const expSum = await request(app).get("/api/expenses/summary?branch_id=1&month=2026-10").set(auth);
+    assert.equal(expSum.body.byCategory.performance.total, 600000);
+
+    // tổng quan các chi nhánh
+    const ov = await request(app).get("/api/dashboard/branches?month=2026-10").set(auth);
+    assert.equal(ov.status, 200);
+    const b1 = ov.body.branches.find((b) => b.branch_id === 1);
+    assert.ok(b1);
+    assert.equal(b1.balance, b1.total_revenue - b1.expenses);
+    assert.ok(b1.teaching_revenue >= 0 && b1.other_revenue >= 2000000 - 2000000 + 0);
+
+    // xuất Excel báo cáo tài chính
+    const xlsx = await request(app).get("/api/export/finance?branch_id=1&month=2026-10").set(auth);
+    assert.equal(xlsx.status, 200);
+    assert.match(xlsx.headers["content-type"], /spreadsheetml/);
+
+    // xóa sự kiện -> gỡ cả thu lẫn chi
+    const del = await request(app).delete(`/api/performances/${ev.body.id}`).set(auth);
+    assert.equal(del.status, 200);
+    const revEnd = await request(app).get("/api/payments/revenue/summary?branch_id=1&from=2026-10-01&to=2026-10-31").set(auth);
+    assert.equal(revEnd.body.byCategory.performance.total, perfBefore);
+    const expEnd = await request(app).get("/api/expenses/summary?branch_id=1&month=2026-10").set(auth);
+    assert.equal(expEnd.body.byCategory.performance.total, 0);
+  });
 });
