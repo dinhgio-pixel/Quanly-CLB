@@ -26,6 +26,28 @@ const roleLabel = (r) => r === "admin" ? "Quản trị viên" : r === "student" 
 const FEE_LABEL = { paid: "Đã đóng", due_soon: "Sắp hết hạn", overdue: "Quá hạn", unpaid: "Chưa đóng", paused: "Tạm dừng", stopped: "Dừng học" };
 const ST_LABEL = { active: "Đang học", paused: "Tạm dừng", stopped: "Dừng học" };
 const CAT_LABEL = { tuition: "Học phí lớp", private: "Dạy 1:1", rental: "Cho thuê", performance: "Biểu diễn", other: "Khác" };
+/* Icon võ phục Vovinam: áo xanh dương, màu đai theo cấp đai của từng người */
+function beltColor(belt) {
+  const b = String(belt || "").toLowerCase();
+  if (b.includes("hồng")) return "#e02424";   // Chuẩn hồng đai + Hồng đai -> đỏ
+  if (b.includes("hoàng")) return "#f2b90d";  // Hoàng đai -> vàng
+  if (b.includes("lam")) return "#1d4ed8";    // Lam đai -> xanh
+  if (b.includes("tự vệ")) return "#8fc1f5";  // Tự vệ (nhập môn) -> xanh nhạt
+  if (b.includes("huyền")) return "#22252a";  // Huyền đai -> đen
+  if (b.includes("bạch")) return "#f1f5f9";   // Bạch đai -> trắng
+  return "#9aa5b1";                           // chưa xếp đai -> xám
+}
+function beltIcon(belt, size) {
+  const s = size || 17, c = beltColor(belt);
+  return `<svg width="${s}" height="${s}" viewBox="0 0 48 48" aria-hidden="true" style="vertical-align:-0.3em">
+    <path d="M14 5 L5 10 L9 20 L13 18 L13 43 L35 43 L35 18 L39 20 L43 10 L34 5 L24 15 Z" fill="#2f6fd0" stroke="#17457f" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M15.5 5.5 L24 14 L32.5 5.5" fill="none" stroke="#17457f" stroke-width="2" stroke-linecap="round"/>
+    <rect x="13" y="29" width="22" height="4.6" fill="${c}" stroke="rgba(0,0,0,.28)" stroke-width="0.8"/>
+    <rect x="21.6" y="28.6" width="4.8" height="5.4" rx="1" fill="${c}" stroke="rgba(0,0,0,.28)" stroke-width="0.8"/>
+    <path d="M21.8 34 L20.9 41.2 L23.8 41.2 L24.1 34 Z" fill="${c}" stroke="rgba(0,0,0,.28)" stroke-width="0.8"/>
+    <path d="M26.2 34 L27.1 41.2 L24.2 41.2 L23.9 34 Z" fill="${c}" stroke="rgba(0,0,0,.28)" stroke-width="0.8"/>
+  </svg>`;
+}
 const ATT_LABEL = { present: "Có mặt", absent: "Vắng", excused: "Có phép" };
 const feeBadge = (s) => `<span class="badge b-${esc(s)}">${esc(FEE_LABEL[s] || s)}</span>`;
 const stBadge = (s) => `<span class="badge b-${esc(s)}">${esc(ST_LABEL[s] || s)}</span>`;
@@ -238,7 +260,7 @@ async function vStudentDash() {
     <div class="grid kpi">
       <div class="card"><div class="num">${a.total || 0}</div><div class="lbl">Buổi đã điểm danh</div></div>
       <div class="card"><div class="num" style="color:var(--ok)">${a.rate === null ? "—" : a.rate + "%"}</div><div class="lbl">Chuyên cần</div></div>
-      <div class="card"><div class="num" style="color:var(--vovinam)">🥋</div><div class="lbl">${esc(s.belt_level || "Chưa xếp đai")}</div></div>
+      <div class="card"><div class="num">${beltIcon(s.belt_level, 42)}</div><div class="lbl">${esc(s.belt_level || "Chưa xếp đai")}</div></div>
     </div>
     <div class="card"><h3>🏫 Lớp của tôi</h3>
       <table>
@@ -470,7 +492,7 @@ async function vClassDetail(id, tab) {
       <button class="btn small" onclick="studentForm(null,${id})">+ Thêm HV</button></div></div>
     <div class="tbl-wrap"><table><tr><th>Họ tên</th><th>Cấp đai</th><th>Gói</th><th>HP đến ngày</th><th>Vắng 30N</th><th>Trạng thái</th><th></th></tr>
     ${list.map((s) => `<tr class="clickable" onclick="location.hash='#/students/${s.id}'"><td><b>${esc(s.full_name)}</b><br><span class="muted">${esc(s.phone || "")}</span></td>
-      <td>🥋 ${esc(s.belt_level || "—")}</td>
+      <td>${beltIcon(s.belt_level)} ${esc(s.belt_level || "—")}</td>
       <td class="muted">${esc(s.package_name || "—")}</td><td>${fmtDate(s.paid_through)}</td>
       <td>${(s.absent_30d || 0) >= 3 ? `<b style="color:var(--bad)">⚠️ ${s.absent_30d}</b>` : (s.absent_30d || 0)}</td>
       <td>${feeBadge(s.fee_state)}</td>
@@ -670,7 +692,7 @@ async function vStudentDetail(id, yr) {
       <table>
       <tr><td class="muted">Lớp</td><td><b>${esc(s.class_name || "—")}</b></td></tr>
       <tr><td class="muted">Gói</td><td>${esc(s.package_name || "—")}${isAdmin() ? (s.package_fee ? " (" + fmtVND(s.package_fee) + ")" : "") : (s.package_sessions ? " (" + s.package_sessions + " buổi/tuần)" : "")}</td></tr>
-      <tr><td class="muted">Cấp đai hiện tại</td><td><b>🥋 ${esc(s.belt_level || "—")}</b></td></tr>
+      <tr><td class="muted">Cấp đai hiện tại</td><td><b>${beltIcon(s.belt_level)} ${esc(s.belt_level || "—")}</b></td></tr>
       <tr><td class="muted">Ngày sinh</td><td>${fmtDate(s.dob)}</td></tr>
       <tr><td class="muted">SĐT phụ huynh</td><td>${esc(s.phone || "—")}</td></tr>
       <tr><td class="muted">Ngày vào lớp</td><td>${fmtDate(s.joined_on)}</td></tr>
@@ -1130,7 +1152,7 @@ window.loadDirectory = async () => {
       : `<p class="muted">Chưa có lớp nào.</p>`}</div>
     <div class="card"><h3>🧑‍🎓 Học viên toàn CLB (${allStudents.length})</h3>
       ${allStudents.length ? `<div class="tbl-wrap"><table><tr><th>Họ tên</th><th>Cấp đai</th><th>Lớp</th></tr>
-      ${allStudents.map((s) => `<tr><td><b>${esc(s.full_name)}</b></td><td>🥋 ${esc(s.belt_level || "—")}</td><td class="muted">${esc(s.class_name || "—")}</td></tr>`).join("")}</table></div>`
+      ${allStudents.map((s) => `<tr><td><b>${esc(s.full_name)}</b></td><td>${beltIcon(s.belt_level)} ${esc(s.belt_level || "—")}</td><td class="muted">${esc(s.class_name || "—")}</td></tr>`).join("")}</table></div>`
       : `<p class="muted">Chưa có học viên.</p>`}</div>`;
   } catch (err) {
     $("#dirBody").innerHTML = `<div class="card"><p style="color:var(--bad)">${esc(err.message)}</p></div>`;
@@ -1143,7 +1165,7 @@ window.dirStudents = async (cid, btnId) => {
   try {
     const list = await api("GET", `/directory/classes/${cid}/students`);
     box.innerHTML = list.length ? `<div class="tbl-wrap"><table><tr><th>Họ tên</th><th>Cấp đai</th></tr>
-      ${list.map((s) => `<tr><td>${esc(s.full_name)}</td><td>🥋 ${esc(s.belt_level || "—")}</td></tr>`).join("")}</table></div>`
+      ${list.map((s) => `<tr><td>${esc(s.full_name)}</td><td>${beltIcon(s.belt_level)} ${esc(s.belt_level || "—")}</td></tr>`).join("")}</table></div>`
       : `<p class="muted">Lớp chưa có học viên đang học.</p>`;
     row.style.display = ""; btn.textContent = "🔼 Thu gọn";
   } catch (err) { btn.textContent = "👥 DS học viên"; toast(err.message); }
@@ -1160,7 +1182,7 @@ async function vProfile() {
     <table>
     <tr><td class="muted">Tên đăng nhập</td><td><b>${esc(me.username)}</b></td></tr>
     <tr><td class="muted">Họ tên</td><td>${esc(me.full_name || "—")}</td></tr>
-    <tr><td class="muted">Cấp đai</td><td>🥋 ${esc(me.belt_level || "—")}</td></tr>
+    <tr><td class="muted">Cấp đai</td><td>${beltIcon(me.belt_level)} ${esc(me.belt_level || "—")}</td></tr>
     <tr><td class="muted">SĐT</td><td>${esc(me.phone || "—")}</td></tr>
     <tr><td class="muted">Vai trò</td><td>${roleLabel(me.role)}</td></tr>
     </table>
@@ -1495,7 +1517,7 @@ async function vStudentClasses() {
       <div class="muted">${esc(c.schedule || "—")}${c.room ? " · " + esc(c.room) : ""}</div>
       <div class="row spread" style="margin-top:.5rem"><span>${c.active_students} HV đang học</span>
       ${c.status !== "active" ? `<span class="muted">(tạm ngưng)</span>` : ""}</div>
-      ${c.coaches.length ? `<div class="muted">HLV: ${c.coaches.map((h) => `${esc(h.name)}${h.belt_level ? ` — 🥋 ${esc(h.belt_level)}` : ""}`).join("; ")}</div>` : ""}</div>`;
+      ${c.coaches.length ? `<div class="muted">HLV: ${c.coaches.map((h) => `${esc(h.name)}${h.belt_level ? ` — ${beltIcon(h.belt_level)} ${esc(h.belt_level)}` : ""}`).join("; ")}</div>` : ""}</div>`;
   const sections = S.branches.map((b) => {
     const cls = list.filter((c) => c.branch_id === b.id);
     if (!cls.length) return "";
@@ -1584,7 +1606,7 @@ async function vUsers() {
   V.innerHTML = pageHead("Tài khoản", `<button class="btn" onclick="userForm()">+ Thêm</button>`) + reqCard +
     `<div class="card"><div class="tbl-wrap"><table><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Cấp đai</th><th>Vai trò</th><th>Lớp phụ trách</th><th>TT</th><th></th></tr>
     ${users.map((u) => `<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.full_name || "—")}${u.role === "student" && u.student_name ? `<br><span class="muted">HV: ${esc(u.student_name)}</span>` : ""}</td>
-      <td>${u.role === "coach" ? `🥋 ${esc(u.belt_level || "—")}` : `<span class="muted">—</span>`}</td>
+      <td>${u.role === "coach" ? `${beltIcon(u.belt_level)} ${esc(u.belt_level || "—")}` : `<span class="muted">—</span>`}</td>
       <td>${roleLabel(u.role)}</td>
       <td class="muted">${classIdsOf(u).map((cid) => esc(className(cid))).join(", ") || "—"}</td>
       <td>${u.status === "active" ? `<span class="badge b-active">Mở</span>` : `<span class="badge b-inactive">Khóa</span>`}</td>
