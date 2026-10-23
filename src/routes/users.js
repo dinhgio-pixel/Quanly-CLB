@@ -11,6 +11,7 @@ router.use(requireAuth, requireRole("admin"));
 router.get("/", async (req, res) => {
   const { rows } = await db.query(
     `SELECT u.id, u.username, u.role, u.full_name, u.belt_level, u.phone, u.status, u.created_at, u.student_id,
+            u.pay_type, u.hourly_rate, u.fixed_salary, u.revenue_share_pct,
             st.full_name AS student_name
      FROM users u LEFT JOIN students st ON st.id = u.student_id
      ORDER BY u.id`
@@ -29,7 +30,8 @@ router.get("/", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
-    const { username, password, role, full_name, belt_level, phone, student_id } = req.body || {};
+    const { username, password, role, full_name, belt_level, phone, student_id,
+            pay_type, hourly_rate, fixed_salary, revenue_share_pct } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: "Thiếu tên đăng nhập/mật khẩu" });
     if (!["admin", "coach", "student"].includes(role)) return res.status(400).json({ error: "Vai trò không hợp lệ" });
     const sid = role === "student" ? Number(student_id) || null : null;
@@ -40,8 +42,14 @@ router.post("/", async (req, res) => {
     }
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await db.query(
-      "INSERT INTO users (username, password_hash, role, full_name, belt_level, phone, student_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, username, role, full_name, belt_level, phone, status, student_id",
-      [username.trim(), hash, role, (full_name || "").trim(), (belt_level || "").trim(), (phone || "").trim(), sid]
+      `INSERT INTO users (username, password_hash, role, full_name, belt_level, phone, student_id,
+                          pay_type, hourly_rate, fixed_salary, revenue_share_pct)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING id, username, role, full_name, belt_level, phone, status, student_id,
+                 pay_type, hourly_rate, fixed_salary, revenue_share_pct`,
+      [username.trim(), hash, role, (full_name || "").trim(), (belt_level || "").trim(), (phone || "").trim(), sid,
+       PAY_TYPES.includes(pay_type) ? pay_type : "hourly",
+       numOrNull(hourly_rate), numOrNull(fixed_salary), numOrNull(revenue_share_pct)]
     );
     res.status(201).json(rows[0]);
   } catch (e) {
@@ -50,10 +58,18 @@ router.post("/", async (req, res) => {
   }
 });
 
+const PAY_TYPES = ["hourly", "fixed", "revenue_share"];
+function numOrNull(v) {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 router.put("/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { password, role, full_name, belt_level, phone, status, student_id } = req.body || {};
+    const { password, role, full_name, belt_level, phone, status, student_id,
+            pay_type, hourly_rate, fixed_salary, revenue_share_pct } = req.body || {};
     if (id === req.user.id && status === "inactive") {
       return res.status(400).json({ error: "Không thể khóa chính tài khoản của mình" });
     }
@@ -65,11 +81,16 @@ router.put("/:id", async (req, res) => {
     if (phone !== undefined) { sets.push(`phone = $${sets.length + 1}`); vals.push(String(phone).trim()); }
     if (status && ["active", "inactive"].includes(status)) { sets.push(`status = $${sets.length + 1}`); vals.push(status); }
     if (student_id !== undefined) { sets.push(`student_id = $${sets.length + 1}`); vals.push(Number(student_id) || null); }
+    if (pay_type !== undefined && PAY_TYPES.includes(pay_type)) { sets.push(`pay_type = $${sets.length + 1}`); vals.push(pay_type); }
+    if (hourly_rate !== undefined) { sets.push(`hourly_rate = $${sets.length + 1}`); vals.push(numOrNull(hourly_rate)); }
+    if (fixed_salary !== undefined) { sets.push(`fixed_salary = $${sets.length + 1}`); vals.push(numOrNull(fixed_salary)); }
+    if (revenue_share_pct !== undefined) { sets.push(`revenue_share_pct = $${sets.length + 1}`); vals.push(numOrNull(revenue_share_pct)); }
     if (!sets.length) return res.status(400).json({ error: "Không có gì để cập nhật" });
     vals.push(id);
     const { rows } = await db.query(
       `UPDATE users SET ${sets.join(", ")} WHERE id = $${vals.length}
-       RETURNING id, username, role, full_name, belt_level, phone, status, student_id`,
+       RETURNING id, username, role, full_name, belt_level, phone, status, student_id,
+                 pay_type, hourly_rate, fixed_salary, revenue_share_pct`,
       vals
     );
     if (!rows[0]) return res.status(404).json({ error: "Không tìm thấy tài khoản" });

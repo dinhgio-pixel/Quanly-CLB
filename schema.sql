@@ -31,6 +31,31 @@ CREATE TABLE IF NOT EXISTS users (
 -- Hồ sơ HLV (cấp đai, SĐT) + yêu cầu sửa hồ sơ chờ duyệt
 ALTER TABLE users ADD COLUMN IF NOT EXISTS belt_level VARCHAR(50) NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30) NOT NULL DEFAULT '';
+
+-- Cấu hình lương HLV: theo giờ (hourly) / cố định tháng (fixed) / % doanh thu giảng dạy (revenue_share)
+-- Để trống (NULL) nghĩa là chưa đặt; revenue_share để trống thì tính mặc định 40%
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pay_type VARCHAR(20) NOT NULL DEFAULT 'hourly';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_rate INTEGER;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS fixed_salary INTEGER;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS revenue_share_pct NUMERIC(5,2);
+
+-- Sổ chi: lương HLV, chi phí biểu diễn, chi khác (báo cáo tài chính = payments thu - expenses chi)
+CREATE TABLE IF NOT EXISTS expenses (
+  id         SERIAL PRIMARY KEY,
+  branch_id  INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  category   VARCHAR(30) NOT NULL DEFAULT 'other'
+             CHECK (category IN ('salary', 'performance', 'other')),
+  amount     INTEGER NOT NULL CHECK (amount > 0),
+  paid_on    DATE NOT NULL,
+  note       VARCHAR(300) NOT NULL DEFAULT '',
+  coach_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  ref_key    VARCHAR(120),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_expenses_branch ON expenses(branch_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_paid_on ON expenses(paid_on);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_expenses_ref_key ON expenses(ref_key) WHERE ref_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS profile_change_requests (
   id           SERIAL PRIMARY KEY,
   user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -172,6 +197,9 @@ CREATE TABLE IF NOT EXISTS payments (
 CREATE INDEX IF NOT EXISTS idx_payments_branch  ON payments(branch_id);
 CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id);
 CREATE INDEX IF NOT EXISTS idx_payments_paid_on ON payments(paid_on);
+
+-- Khoản thu gắn HLV phụ trách (dùng cho dạy 1:1 và tính % doanh thu giảng dạy)
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS coach_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
 
 -- Chấm công HLV theo buổi và giờ dạy (mỗi dòng = 1 buổi dạy)
 CREATE TABLE IF NOT EXISTS coach_timesheets (

@@ -113,6 +113,7 @@ const NAV = [
   ["#/shift-swaps", "🔄", "Đổi ca"],
   ["#/directory", "🔍", "Tra cứu"],
   ["#/fees", "💰", "Thu phí"],
+  ["#/payroll", "💵", "Lương HLV", true],
   ["#/profile", "👤", "Hồ sơ", false, "coach"],
   ["#/former-students", "🗂️", "Học viên cũ", true],
   ["#/packages", "📦", "Gói học", true],
@@ -1174,6 +1175,88 @@ window.changePasswordForm = () => {
   };
 };
 
+/* ----- lương HLV + sổ chi ----- */
+const EXP_LABEL = { salary: "Lương HLV", performance: "Chi phí biểu diễn", other: "Chi khác" };
+const PAY_TYPE_LABEL = { hourly: "Theo giờ", fixed: "Cố định tháng", revenue_share: "% doanh thu giảng dạy" };
+let payrollMonth = null;
+async function vPayroll() {
+  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
+  const m = payrollMonth || todayInput().slice(0, 7);
+  payrollMonth = m;
+  const bName = (S.branches.find((b) => b.id === S.branchId) || {}).name || "";
+  V.innerHTML = pageHead("Lương HLV") +
+    `<div class="card"><div class="row"><label style="margin:0">Tháng</label>
+     <input type="month" id="prMonth" value="${m}" style="width:auto">
+     <button class="btn" onclick="payrollMonth=document.getElementById('prMonth').value;vPayroll()">Xem</button>
+     <span class="muted">Chi nhánh: <b>${esc(bName)}</b> (đổi chi nhánh ở thanh trên cùng)</span></div></div>
+     <div id="prBody"><p class="muted">Đang tải...</p></div>`;
+  const [pr, exps] = await Promise.all([
+    api("GET", `/payroll?branch_id=${S.branchId}&month=${m}`),
+    api("GET", `/expenses?branch_id=${S.branchId}&month=${m}`).catch(() => []),
+  ]);
+  const t = pr.totals;
+  const allSettled = pr.rows.length > 0 && pr.rows.every((r) => !r.salary || r.settled);
+  $("#prBody").innerHTML = `
+   <div class="grid kpi">
+     <div class="card"><div class="num">${fmtVND(t.total_salary)}</div><div class="lbl">Tổng lương HLV</div></div>
+     <div class="card"><div class="num">${fmtVND(t.teaching_revenue)}</div><div class="lbl">Doanh thu giảng dạy (học phí lớp + dạy 1:1)</div></div>
+     <div class="card"><div class="num" style="color:${t.over_warn ? "var(--bad)" : "var(--ok)"}">${t.ratio == null ? "—" : t.ratio + "%"}</div><div class="lbl">Tỷ trọng lương / doanh thu giảng dạy (ngưỡng ${t.warn_ratio}%)</div></div>
+     <div class="card"><div class="num">${fmtVND(t.total_revenue)}</div><div class="lbl">Tổng doanh thu chi nhánh</div></div>
+   </div>
+   ${t.over_warn ? `<div class="card" style="border-left:4px solid var(--bad)"><b>⚠️ Tỷ trọng lương đang vượt ${t.warn_ratio}% doanh thu giảng dạy.</b></div>` : ""}
+   <div class="card"><div class="row spread"><h3 style="margin:0">Bảng lương tháng ${m.slice(5)}/${m.slice(0, 4)}</h3>
+     <button class="btn" onclick="settlePayroll('${m}')" ${allSettled ? "disabled" : ""}>✅ Chốt lương & ghi sổ chi</button></div>
+   ${pr.rows.length ? `<div class="tbl-wrap"><table><tr><th>HLV</th><th>Kiểu trả</th><th style="text-align:right">Giờ dạy</th>
+     <th style="text-align:right">Thu dạy 1:1</th><th style="text-align:right">Phân bổ học phí lớp</th>
+     <th style="text-align:right">Lương</th><th>Trạng thái</th></tr>
+   ${pr.rows.map((r) => `<tr><td><b>${esc(r.coach_name)}</b></td>
+     <td class="muted">${PAY_TYPE_LABEL[r.pay_type] || r.pay_type}${r.note ? "<br>" + esc(r.note) : ""}</td>
+     <td style="text-align:right">${r.hours}</td>
+     <td style="text-align:right">${fmtVND(r.private_revenue)}</td>
+     <td style="text-align:right">${fmtVND(r.tuition_share)}</td>
+     <td style="text-align:right"><b>${r.salary == null ? "—" : fmtVND(r.salary)}</b></td>
+     <td>${r.settled ? `<span class="badge b-paid">Đã chốt</span>` : `<span class="muted">Chưa chốt</span>`}</td></tr>`).join("")}
+   </table></div>` : `<p class="muted">Chưa có HLV nào hoạt động ở chi nhánh này trong tháng.</p>`}
+   <p class="muted">Kiểu trả lương + đơn giá đặt ở mục Tài khoản → sửa HLV. Giờ dạy lấy từ Chấm công (vào mục Chấm công để sửa từng buổi). Phân bổ học phí lớp: doanh thu học phí của lớp chia theo tỷ lệ giờ dạy của các HLV trong lớp đó.</p></div>
+   <div class="card"><div class="row spread"><h3 style="margin:0">Sổ chi tháng này</h3>
+     <button class="btn small" onclick="expenseForm()">+ Ghi khoản chi</button></div>
+   ${exps.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Nhóm</th><th>Nội dung</th><th style="text-align:right">Số tiền</th><th></th></tr>
+     ${exps.map((e) => `<tr><td>${fmtDate(e.paid_on)}</td><td class="muted">${EXP_LABEL[e.category] || e.category}</td>
+     <td>${esc(e.note || "")}${e.coach_name ? ` — ${esc(e.coach_name)}` : ""}</td>
+     <td style="text-align:right"><b>${fmtVND(e.amount)}</b></td>
+     <td><button class="btn small danger" onclick="expenseDel(${e.id})">Xóa</button></td></tr>`).join("")}</table></div>`
+     : `<p class="muted">Chưa có khoản chi nào trong tháng.</p>`}</div>`;
+}
+window.settlePayroll = async (m) => {
+  if (!await confirmDlg(`Chốt lương tháng ${m.slice(5)}/${m.slice(0, 4)}? Khoản chi lương của từng HLV sẽ được ghi vào sổ chi của chi nhánh đang chọn.`)) return;
+  try {
+    const r = await api("POST", "/payroll/settle", { branch_id: S.branchId, month: m });
+    toast(`Đã chốt lương: ghi ${r.created} khoản chi`);
+    vPayroll();
+  } catch (err) { toast(err.message); }
+};
+window.expenseForm = () => {
+  openModal(`<h3>Ghi khoản chi</h3><form id="f">
+    <label>Nhóm chi</label><select name="category">
+      <option value="other">Chi khác</option><option value="performance">Chi phí biểu diễn</option><option value="salary">Lương HLV (ghi tay)</option></select>
+    <label>Số tiền (đ)</label><input name="amount" type="number" min="1" required>
+    <label>Ngày chi</label><input name="paid_on" type="date" value="${todayInput()}" required>
+    <label>Nội dung</label><input name="note">
+    <div class="btnrow"><button class="btn">Lưu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const fd = new FormData(e.target);
+    try {
+      await api("POST", "/expenses", { branch_id: S.branchId, category: fd.get("category"), amount: fd.get("amount"), paid_on: fd.get("paid_on"), note: fd.get("note") });
+      closeModal(); toast("Đã ghi khoản chi"); vPayroll();
+    } catch (err) { toast(err.message); }
+  };
+};
+window.expenseDel = async (id) => {
+  if (!await confirmDlg("Xóa khoản chi này?")) return;
+  try { await api("DELETE", "/expenses/" + id); toast("Đã xóa"); vPayroll(); }
+  catch (err) { toast(err.message); }
+};
+
 /* ----- lớp học (học viên xem tất cả lớp, chia theo chi nhánh) ----- */
 async function vStudentClasses() {
   V.innerHTML = `<p class="muted">Đang tải...</p>`;
@@ -1204,10 +1287,18 @@ async function vFees() {
   let revHtml = "";
   if (isAdmin()) {
     const sum = await api("GET", `/payments/revenue/summary?branch_id=${S.branchId}&from=${m}-01&to=${m}-31`);
+    const exp = await api("GET", `/expenses/summary?branch_id=${S.branchId}&month=${m}`).catch(() => ({ grandTotal: 0 }));
+    const bc = sum.byCategory;
+    const teaching = (bc.tuition.total || 0) + (bc.private.total || 0);
+    const nonTeaching = (bc.rental.total || 0) + (bc.performance.total || 0) + (bc.other.total || 0);
     revHtml = `<div class="card"><h3>💰 Tổng quan tháng ${m.slice(5)}/${m.slice(0, 4)}: ${fmtVND(sum.grandTotal)}</h3>
       <div class="tbl-wrap"><table><tr><th>Nhóm</th><th style="text-align:right">Số khoản</th><th style="text-align:right">Tổng</th></tr>
       ${Object.keys(CAT_LABEL).map((k) => `<tr><td>${CAT_LABEL[k]}</td><td style="text-align:right">${sum.byCategory[k].count}</td>
-      <td style="text-align:right"><b>${fmtVND(sum.byCategory[k].total)}</b></td></tr>`).join("")}</table></div></div>`;
+      <td style="text-align:right"><b>${fmtVND(sum.byCategory[k].total)}</b></td></tr>`).join("")}</table></div>
+      <p style="margin:.6rem 0 0">🎓 <b>Hoạt động giảng dạy</b> (học phí lớp + dạy 1:1): <b>${fmtVND(teaching)}</b><br>
+      🏟️ <b>Hoạt động khác</b> (cho thuê + biểu diễn + khác): <b>${fmtVND(nonTeaching)}</b><br>
+      💸 <b>Tổng chi tháng</b> (xem ở Lương HLV / sổ chi): <b>${fmtVND(exp.grandTotal)}</b><br>
+      ⚖️ <b>Chênh lệch thu − chi</b>: <b style="color:${sum.grandTotal - exp.grandTotal >= 0 ? "var(--ok)" : "var(--bad)"}">${fmtVND(sum.grandTotal - exp.grandTotal)}</b></p></div>`;
   }
   $("#feeBody").innerHTML = revHtml + `
   <div class="card"><h3>Theo lớp</h3>
@@ -1224,9 +1315,14 @@ window.payFor = async (studentId, classId) => {
   let s = null;
   if (studentId) s = await api("GET", "/students/" + studentId).catch(() => null);
   const pkgFee = s && s.package_fee ? s.package_fee : "";
+  const allUsers = await api("GET", "/users").catch(() => []);
+  const coaches = allUsers.filter((u) => u.role === "coach" && u.status === "active");
   openModal(`<h3>Ghi nhận thu phí${s ? " — " + esc(s.full_name) : ""}</h3><form id="f">
     <label>Nhóm khoản thu</label><select name="category">
     ${Object.keys(CAT_LABEL).map((k) => `<option value="${k}">${CAT_LABEL[k]}</option>`).join("")}</select>
+    <label>HLV phụ trách (chọn khi là buổi dạy 1:1 — để tính % doanh thu cho HLV)</label>
+    <select name="coach_id"><option value="">— Không gắn HLV —</option>
+    ${coaches.map((u) => `<option value="${u.id}">${esc(u.full_name || u.username)}</option>`).join("")}</select>
     <label>Số tiền (đ) — tự điền theo gói, sửa linh động được</label>
     <input name="amount" type="number" min="1" value="${pkgFee}" required>
     <label>Ngày thu</label><input name="paid_on" type="date" value="${todayInput()}" required>
@@ -1238,7 +1334,8 @@ window.payFor = async (studentId, classId) => {
     try {
       await api("POST", "/payments", { branch_id: S.branchId, student_id: studentId || null,
         category: fd.get("category"), amount: fd.get("amount"), paid_on: fd.get("paid_on"),
-        paid_through: fd.get("paid_through") || null, note: fd.get("note") });
+        paid_through: fd.get("paid_through") || null, note: fd.get("note"),
+        coach_id: fd.get("coach_id") || null });
       closeModal(); toast("Đã ghi nhận"); route();
     } catch (err) { toast(err.message); }
   };
@@ -1280,6 +1377,15 @@ window.profileReqReview = async (id, approve) => {
     vUsers();
   } catch (err) { toast(err.message); }
 };
+// Hiện ô nhập theo kiểu trả lương ở form Tài khoản
+window.payTypeToggle = () => {
+  const sel = document.getElementById("uPayType");
+  if (!sel) return;
+  const v = sel.value;
+  document.getElementById("payHourly").style.display = v === "hourly" ? "" : "none";
+  document.getElementById("payFixed").style.display = v === "fixed" ? "" : "none";
+  document.getElementById("payShare").style.display = v === "revenue_share" ? "" : "none";
+};
 window.userForm = async (id) => {
   const users = await api("GET", "/users");
   const u = id ? users.find((x) => x.id === id) : {};
@@ -1301,10 +1407,19 @@ window.userForm = async (id) => {
     <div><label>Cấp đai (HLV)</label><input name="belt_level" value="${esc(u.belt_level || "")}" placeholder="VD: Hoàng đai"></div>
     <div><label>SĐT</label><input name="phone" value="${esc(u.phone || "")}"></div></div>
     <label>Mật khẩu ${id ? "(để trống nếu không đổi)" : ""}</label><input name="password" type="password" ${id ? "" : "required"}>
-    <label>Vai trò</label><select name="role" id="uRole" onchange="document.getElementById('uStudentWrap').style.display=this.value==='student'?'':'none'">
+    <label>Vai trò</label><select name="role" id="uRole" onchange="document.getElementById('uStudentWrap').style.display=this.value==='student'?'':'none';document.getElementById('uPayWrap').style.display=this.value==='coach'?'':'none'">
       <option value="coach" ${u.role === "coach" ? "selected" : ""}>Huấn luyện viên</option>
       <option value="admin" ${u.role === "admin" ? "selected" : ""}>Quản trị viên</option>
       <option value="student" ${u.role === "student" ? "selected" : ""}>Học viên</option></select>
+    <div id="uPayWrap" style="display:${u.role === "student" || u.role === "admin" ? "none" : ""}">
+      <label>Kiểu trả lương (HLV)</label><select name="pay_type" id="uPayType" onchange="payTypeToggle()">
+        <option value="hourly" ${u.pay_type !== "fixed" && u.pay_type !== "revenue_share" ? "selected" : ""}>Theo giờ dạy</option>
+        <option value="fixed" ${u.pay_type === "fixed" ? "selected" : ""}>Cố định theo tháng</option>
+        <option value="revenue_share" ${u.pay_type === "revenue_share" ? "selected" : ""}>% doanh thu giảng dạy</option></select>
+      <div id="payHourly"><label>Đơn giá (đ/giờ) — để trống nếu chưa thỏa thuận</label><input name="hourly_rate" type="number" min="0" value="${u.hourly_rate != null ? u.hourly_rate : ""}"></div>
+      <div id="payFixed"><label>Lương cố định (đ/tháng)</label><input name="fixed_salary" type="number" min="0" value="${u.fixed_salary != null ? u.fixed_salary : ""}"></div>
+      <div id="payShare"><label>% doanh thu giảng dạy — để trống = mặc định 40%</label><input name="revenue_share_pct" type="number" min="0" max="100" step="0.5" value="${u.revenue_share_pct != null ? u.revenue_share_pct : ""}"></div>
+    </div>
     <div id="uStudentWrap" style="display:${u.role === "student" ? "" : "none"}">
       <label>Gắn với học viên</label><select name="student_id">
       ${students.map((s) => `<option value="${s.id}" ${u.student_id == s.id ? "selected" : ""}>${esc(s.full_name)}${s.class_name ? " — " + esc(s.class_name) : ""}</option>`).join("")}
@@ -1315,10 +1430,17 @@ window.userForm = async (id) => {
       <option value="inactive" ${u.status === "inactive" ? "selected" : ""}>Khóa</option></select>
     <div class="btnrow"><button class="btn">Lưu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button>
     ${id ? `<button type="button" class="btn danger" onclick="userDel(${id})">Xóa</button>` : ""}</div></form>`);
+  payTypeToggle();
   $("#f").onsubmit = async (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const body = { full_name: fd.get("full_name"), role: fd.get("role"), status: fd.get("status"),
       belt_level: fd.get("belt_level"), phone: fd.get("phone") };
+    if (fd.get("role") === "coach") {
+      body.pay_type = fd.get("pay_type");
+      body.hourly_rate = fd.get("hourly_rate");
+      body.fixed_salary = fd.get("fixed_salary");
+      body.revenue_share_pct = fd.get("revenue_share_pct");
+    }
     if (fd.get("role") === "student" && fd.get("student_id")) body.student_id = fd.get("student_id");
     if (fd.get("password")) body.password = fd.get("password");
     if (!id) body.username = fd.get("username");
@@ -1388,6 +1510,7 @@ async function route() {
     else if (seg[0] === "shift-swaps") await vShiftSwaps();
     else if (seg[0] === "directory") await vDirectory();
     else if (seg[0] === "fees") await vFees();
+    else if (seg[0] === "payroll") await vPayroll();
     else if (seg[0] === "users") await vUsers();
     else await vDashboard();
   } catch (err) {

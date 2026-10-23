@@ -26,10 +26,11 @@ router.get("/", async (req, res) => {
   }
   const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
   const { rows } = await db.query(
-    `SELECT p.*, s.full_name AS student_name, u.full_name AS created_by_name
+    `SELECT p.*, s.full_name AS student_name, u.full_name AS created_by_name, cu.full_name AS coach_name
      FROM payments p
      LEFT JOIN students s ON s.id = p.student_id
      LEFT JOIN users u ON u.id = p.created_by
+     LEFT JOIN users cu ON cu.id = p.coach_id
      ${where} ORDER BY p.paid_on DESC, p.id DESC LIMIT 500`, vals
   );
   // HLV không thấy số tiền
@@ -103,7 +104,7 @@ router.post("/fee-month", requireRole("admin"), async (req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { branch_id, student_id, category, amount, paid_on, paid_through, note } = req.body || {};
+  const { branch_id, student_id, category, amount, paid_on, paid_through, note, coach_id } = req.body || {};
   if (!branch_id || !amount || Number(amount) <= 0 || !paid_on) {
     return res.status(400).json({ error: "Thiếu chi nhánh / số tiền / ngày thu" });
   }
@@ -120,10 +121,10 @@ router.post("/", async (req, res) => {
     return res.status(403).json({ error: "Chỉ admin ghi nhận khoản thu không gắn học viên" });
   }
   const { rows } = await db.query(
-    `INSERT INTO payments (branch_id, student_id, category, amount, paid_on, paid_through, note, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    `INSERT INTO payments (branch_id, student_id, category, amount, paid_on, paid_through, note, created_by, coach_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
     [Number(branch_id), sid, category, Math.round(Number(amount)), paid_on,
-     paid_through || null, (note || "").trim(), req.user.id]
+     paid_through || null, (note || "").trim(), req.user.id, coach_id ? Number(coach_id) : null]
   );
   // Nếu là học phí lớp -> tính lại "HP đến ngày" cho HV
   if (sid && category === "tuition") await recalcPaidThrough(sid);

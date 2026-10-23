@@ -22,6 +22,8 @@ function createApp() {
   app.use("/api/export", require("./routes/export"));
   app.use("/api/directory", require("./routes/directory"));
   app.use("/api/profile", require("./routes/profile"));
+  app.use("/api/expenses", require("./routes/expenses"));
+  app.use("/api/payroll", require("./routes/payroll"));
   app.use("/api/dashboard", require("./routes/dashboard"));
 
   app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));

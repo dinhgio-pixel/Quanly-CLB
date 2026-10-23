@@ -772,4 +772,64 @@ describe("Quản lý CLB Vovinam (production)", () => {
     const js = await request(app).get("/js/app.js");
     assert.match(js.headers["cache-control"] || "", /no-cache/);
   });
+
+  it("lương HLV: 3 kiểu trả + chốt lương ghi sổ chi, không chốt trùng", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const M = "2026-08"; // tháng riêng, không dính dữ liệu test khác
+    // HLV theo giờ: 200k/h
+    const h = await request(app).post("/api/users").set(auth).send({
+      username: "hlv_gio", password: "hlv123", role: "coach", full_name: "HLV Theo Giờ",
+      pay_type: "hourly", hourly_rate: 200000 });
+    assert.equal(h.status, 201);
+    assert.equal(h.body.pay_type, "hourly");
+    assert.equal(Number(h.body.hourly_rate), 200000);
+    await request(app).put(`/api/users/${h.body.id}/classes`).set(auth).send({ classIds: [2], branchIds: [1] });
+    await request(app).post("/api/timesheets").set(auth).send({
+      branch_id: 1, user_id: h.body.id, class_id: 2, work_date: "2026-08-10", hours: 2, note: "Dạy thử" });
+    // HLV % doanh thu: 50% thu dạy 1:1
+    const rs = await request(app).post("/api/users").set(auth).send({
+      username: "hlv_pt", password: "hlv123", role: "coach", full_name: "HLV Phần Trăm",
+      pay_type: "revenue_share", revenue_share_pct: 50 });
+    assert.equal(rs.status, 201);
+    await request(app).put(`/api/users/${rs.body.id}/classes`).set(auth).send({ classIds: [], branchIds: [1] });
+    const pv = await request(app).post("/api/payments").set(auth).send({
+      branch_id: 1, category: "private", amount: 1000000, paid_on: "2026-08-05",
+      note: "Buổi 1:1", coach_id: rs.body.id });
+    assert.equal(pv.status, 201);
+    // HLV cố định: 3tr/tháng
+    const fx = await request(app).post("/api/users").set(auth).send({
+      username: "hlv_cung", password: "hlv123", role: "coach", full_name: "HLV Cố Định",
+      pay_type: "fixed", fixed_salary: 3000000 });
+    assert.equal(fx.status, 201);
+    await request(app).put(`/api/users/${fx.body.id}/classes`).set(auth).send({ classIds: [], branchIds: [1] });
+
+    const pr = await request(app).get(`/api/payroll?branch_id=1&month=${M}`).set(auth);
+    assert.equal(pr.status, 200);
+    const rowH = pr.body.rows.find((r) => r.coach_id === h.body.id);
+    assert.equal(rowH.hours, 2);
+    assert.equal(rowH.salary, 400000);
+    const rowRs = pr.body.rows.find((r) => r.coach_id === rs.body.id);
+    assert.equal(rowRs.private_revenue, 1000000);
+    assert.equal(rowRs.salary, 500000);
+    const rowFx = pr.body.rows.find((r) => r.coach_id === fx.body.id);
+    assert.equal(rowFx.salary, 3000000);
+    assert.equal(pr.body.totals.warn_ratio, 40);
+
+    // chốt lương -> ghi sổ chi; chốt lại -> không tạo thêm
+    const s1 = await request(app).post("/api/payroll/settle").set(auth).send({ branch_id: 1, month: M });
+    assert.equal(s1.status, 200);
+    assert.equal(s1.body.created, 3);
+    const s2 = await request(app).post("/api/payroll/settle").set(auth).send({ branch_id: 1, month: M });
+    assert.equal(s2.body.created, 0);
+    const pr2 = await request(app).get(`/api/payroll?branch_id=1&month=${M}`).set(auth);
+    assert.ok(pr2.body.rows.find((r) => r.coach_id === h.body.id).settled);
+
+    // sổ chi: thêm tay + tổng hợp
+    const ex = await request(app).post("/api/expenses").set(auth).send({
+      branch_id: 1, category: "other", amount: 500000, paid_on: "2026-08-20", note: "Mua thảm" });
+    assert.equal(ex.status, 201);
+    const sum = await request(app).get(`/api/expenses/summary?branch_id=1&month=${M}`).set(auth);
+    assert.equal(sum.body.grandTotal, 3900000 + 500000);
+    assert.equal(sum.body.byCategory.salary.total, 3900000);
+  });
 });
