@@ -334,3 +334,25 @@ CREATE TABLE IF NOT EXISTS performances (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_perf_branch_date ON performances(branch_id, event_date);
+
+-- Chống dò mật khẩu: đếm lần đăng nhập sai theo tài khoản + theo IP, khóa tạm khi vượt ngưỡng
+CREATE TABLE IF NOT EXISTS login_guards (
+  guard_key    VARCHAR(200) PRIMARY KEY,
+  fails        INTEGER NOT NULL DEFAULT 0,
+  window_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  locked_until TIMESTAMPTZ
+);
+
+-- Nhật ký hoạt động: ai làm gì với dữ liệu nhạy cảm (đăng nhập, thu/chi, lương, tài khoản...)
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  username   VARCHAR(100) NOT NULL DEFAULT '',
+  action     VARCHAR(60) NOT NULL,
+  entity     VARCHAR(60) NOT NULL DEFAULT '',
+  entity_id  INTEGER,
+  detail     VARCHAR(500) NOT NULL DEFAULT '',
+  ip         VARCHAR(100) NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);

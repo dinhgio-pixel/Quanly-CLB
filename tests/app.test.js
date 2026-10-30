@@ -57,9 +57,11 @@ describe("Quản lý CLB Vovinam (production)", () => {
 
   it("CRUD học viên", async () => {
     const auth = { Authorization: "Bearer " + adminToken };
+    // Hạn đóng phí đặt động (+60 ngày) để trạng thái luôn là "paid" bất kể ngày chạy test
+    const futureDate = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
     const created = await request(app).post("/api/students").set(auth).send({
       branch_id: 1, class_id: 2, package_id: 1, full_name: "HV Test",
-      phone: "0900000000", joined_on: "2026-10-13", paid_through: "2026-10-31",
+      phone: "0900000000", joined_on: "2026-10-13", paid_through: futureDate,
     });
     assert.equal(created.status, 201);
     const id = created.body.id;
@@ -140,11 +142,11 @@ describe("Quản lý CLB Vovinam (production)", () => {
     const auth = { Authorization: "Bearer " + adminToken };
     // tạo HLV + gán lớp Kid 1 (id 2)
     const u = await request(app).post("/api/users").set(auth).send({
-      username: "hlv_test", password: "hlv123", role: "coach", full_name: "HLV Test",
+      username: "hlv_test", password: "hlv12345", role: "coach", full_name: "HLV Test",
     });
     assert.equal(u.status, 201);
     await request(app).put(`/api/users/${u.body.id}/classes`).set(auth).send({ classIds: [2] });
-    coachToken = await loginAs("hlv_test", "hlv123");
+    coachToken = await loginAs("hlv_test", "hlv12345");
     const cauth = { Authorization: "Bearer " + coachToken };
 
     const classes = await request(app).get("/api/classes").set(cauth);
@@ -289,11 +291,11 @@ describe("Quản lý CLB Vovinam (production)", () => {
     const { query } = require("../src/db");
     // tạo HLV thứ 2, gán cùng lớp Kid 1 (id 2)
     const u2 = await request(app).post("/api/users").set(auth).send({
-      username: "hlv_test2", password: "hlv123", role: "coach", full_name: "HLV Test 2",
+      username: "hlv_test2", password: "hlv12345", role: "coach", full_name: "HLV Test 2",
     });
     assert.equal(u2.status, 201);
     await request(app).put(`/api/users/${u2.body.id}/classes`).set(auth).send({ classIds: [2] });
-    const login2 = await request(app).post("/api/auth/login").send({ username: "hlv_test2", password: "hlv123" });
+    const login2 = await request(app).post("/api/auth/login").send({ username: "hlv_test2", password: "hlv12345" });
     const c2auth = { Authorization: "Bearer " + login2.body.token };
     const cauth = { Authorization: "Bearer " + coachToken };
     const st = await query("SELECT id FROM students WHERE class_id = 2 AND status = 'active' LIMIT 1");
@@ -435,17 +437,17 @@ describe("Quản lý CLB Vovinam (production)", () => {
     const { query } = require("../src/db");
     // tạo tài khoản HV gắn với học viên id 1
     const u = await request(app).post("/api/users").set(auth).send({
-      username: "hv_test", password: "hv123", role: "student", full_name: "HV Test Acc", student_id: 1,
+      username: "hv_test", password: "hv123456", role: "student", full_name: "HV Test Acc", student_id: 1,
     });
     assert.equal(u.status, 201);
     assert.equal(u.body.role, "student");
     // thiếu student_id -> 400
     const bad = await request(app).post("/api/users").set(auth).send({
-      username: "hv_bad", password: "hv123", role: "student", full_name: "Bad",
+      username: "hv_bad", password: "hv123456", role: "student", full_name: "Bad",
     });
     assert.equal(bad.status, 400);
 
-    const login = await request(app).post("/api/auth/login").send({ username: "hv_test", password: "hv123" });
+    const login = await request(app).post("/api/auth/login").send({ username: "hv_test", password: "hv123456" });
     assert.equal(login.status, 200);
     const sauth = { Authorization: "Bearer " + login.body.token };
 
@@ -512,7 +514,7 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.ok(all.body[0].class_name !== undefined);
 
     // tài khoản học viên không được tra cứu
-    const login = await request(app).post("/api/auth/login").send({ username: "hv_test", password: "hv123" });
+    const login = await request(app).post("/api/auth/login").send({ username: "hv_test", password: "hv123456" });
     const denied = await request(app).get("/api/directory/classes?branch_id=1")
       .set({ Authorization: "Bearer " + login.body.token });
     assert.equal(denied.status, 403);
@@ -599,7 +601,7 @@ describe("Quản lý CLB Vovinam (production)", () => {
         class_id: 1, session_date: dt, records: [{ student_id: 1, status: "absent" }] });
       assert.equal(sv.status, 200);
     }
-    const login = await request(app).post("/api/auth/login").send({ username: "hv_test", password: "hv123" });
+    const login = await request(app).post("/api/auth/login").send({ username: "hv_test", password: "hv123456" });
     const me = await request(app).get("/api/students/me")
       .set({ Authorization: "Bearer " + login.body.token });
     assert.equal(me.status, 200);
@@ -647,7 +649,7 @@ describe("Quản lý CLB Vovinam (production)", () => {
   });
 
   it("catalog lớp: học viên xem được tất cả lớp + HLV + cấp đai HLV", async () => {
-    const login = await request(app).post("/api/auth/login").send({ username: "hv_test", password: "hv123" });
+    const login = await request(app).post("/api/auth/login").send({ username: "hv_test", password: "hv123456" });
     const sauth = { Authorization: "Bearer " + login.body.token };
     const cat = await request(app).get("/api/classes/catalog").set(sauth);
     assert.equal(cat.status, 200);
@@ -742,21 +744,21 @@ describe("Quản lý CLB Vovinam (production)", () => {
       .send({ current_password: "sai-mat-khau", new_password: "matkhau-moi-1" });
     assert.equal(wrong.status, 400);
     const short = await request(app).post("/api/profile/change-password").set(cauth)
-      .send({ current_password: "hlv123", new_password: "123" });
+      .send({ current_password: "hlv12345", new_password: "123" });
     assert.equal(short.status, 400);
     const ok = await request(app).post("/api/profile/change-password").set(cauth)
-      .send({ current_password: "hlv123", new_password: "matkhau-moi-1" });
+      .send({ current_password: "hlv12345", new_password: "matkhau-moi-1" });
     assert.equal(ok.status, 200);
     // MK cũ không đăng nhập được nữa, MK mới đăng nhập được
     const oldLogin = await request(app).post("/api/auth/login")
-      .send({ username: "hlv_test", password: "hlv123" });
+      .send({ username: "hlv_test", password: "hlv12345" });
     assert.equal(oldLogin.status, 401);
     const t2 = await loginAs("hlv_test", "matkhau-moi-1");
     assert.ok(t2);
     // đổi lại MK cũ để các lần chạy sau không lệch
     const back = await request(app).post("/api/profile/change-password")
       .set({ Authorization: "Bearer " + t2 })
-      .send({ current_password: "matkhau-moi-1", new_password: "hlv123" });
+      .send({ current_password: "matkhau-moi-1", new_password: "hlv12345" });
     assert.equal(back.status, 200);
   });
 
@@ -778,7 +780,7 @@ describe("Quản lý CLB Vovinam (production)", () => {
     const M = "2026-08"; // tháng riêng, không dính dữ liệu test khác
     // HLV theo giờ: 200k/h
     const h = await request(app).post("/api/users").set(auth).send({
-      username: "hlv_gio", password: "hlv123", role: "coach", full_name: "HLV Theo Giờ",
+      username: "hlv_gio", password: "hlv12345", role: "coach", full_name: "HLV Theo Giờ",
       pay_type: "hourly", hourly_rate: 200000 });
     assert.equal(h.status, 201);
     assert.equal(h.body.pay_type, "hourly");
@@ -788,7 +790,7 @@ describe("Quản lý CLB Vovinam (production)", () => {
       branch_id: 1, user_id: h.body.id, class_id: 2, work_date: "2026-08-10", hours: 2, note: "Dạy thử" });
     // HLV % doanh thu: 50% thu dạy 1:1
     const rs = await request(app).post("/api/users").set(auth).send({
-      username: "hlv_pt", password: "hlv123", role: "coach", full_name: "HLV Phần Trăm",
+      username: "hlv_pt", password: "hlv12345", role: "coach", full_name: "HLV Phần Trăm",
       pay_type: "revenue_share", revenue_share_pct: 50 });
     assert.equal(rs.status, 201);
     await request(app).put(`/api/users/${rs.body.id}/classes`).set(auth).send({ classIds: [], branchIds: [1] });
@@ -798,7 +800,7 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(pv.status, 201);
     // HLV cố định: 3tr/tháng
     const fx = await request(app).post("/api/users").set(auth).send({
-      username: "hlv_cung", password: "hlv123", role: "coach", full_name: "HLV Cố Định",
+      username: "hlv_cung", password: "hlv12345", role: "coach", full_name: "HLV Cố Định",
       pay_type: "fixed", fixed_salary: 3000000 });
     assert.equal(fx.status, 201);
     await request(app).put(`/api/users/${fx.body.id}/classes`).set(auth).send({ classIds: [], branchIds: [1] });
@@ -872,7 +874,7 @@ describe("Quản lý CLB Vovinam (production)", () => {
 
   it("dạy 1:1: chống trùng lịch HLV, tự ghi thu + giờ lương thỏa thuận, hủy gỡ cả hai", async () => {
     const auth = { Authorization: "Bearer " + adminToken };
-    const hlv = await request(app).post("/api/auth/login").send({ username: "hlv_test", password: "hlv123" });
+    const hlv = await request(app).post("/api/auth/login").send({ username: "hlv_test", password: "hlv12345" });
     const coaches = await request(app).get("/api/users").set(auth);
     const coachId = coaches.body.find((u) => u.username === "hlv_test").id;
     const MON = "2026-10-26"; // hlv_test dạy Kid 1 (lớp 2) T2 17:00–18:30
@@ -948,5 +950,47 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(revEnd.body.byCategory.performance.total, perfBefore);
     const expEnd = await request(app).get("/api/expenses/summary?branch_id=1&month=2026-10").set(auth);
     assert.equal(expEnd.body.byCategory.performance.total, 0);
+  });
+
+  it("bảo mật: headers, mật khẩu >= 8 ký tự, chống dò mật khẩu, nhật ký + sao lưu", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    // security headers
+    const health = await request(app).get("/api/health");
+    assert.equal(health.headers["x-content-type-options"], "nosniff");
+    assert.equal(health.headers["x-frame-options"], "DENY");
+    assert.match(health.headers["content-security-policy"] || "", /frame-ancestors 'none'/);
+
+    // mật khẩu ngắn bị từ chối, đủ 8 ký tự thì được
+    const short = await request(app).post("/api/users").set(auth).send({
+      username: "guard_test", password: "abc123", role: "coach", full_name: "Guard Test" });
+    assert.equal(short.status, 400);
+    const okUser = await request(app).post("/api/users").set(auth).send({
+      username: "guard_test", password: "guard12345", role: "coach", full_name: "Guard Test" });
+    assert.equal(okUser.status, 201);
+
+    // sai 5 lần -> lần 6 dù đúng mật khẩu vẫn bị chặn 429
+    for (let i = 0; i < 5; i++) {
+      const f = await request(app).post("/api/auth/login").send({ username: "guard_test", password: "sai-mat-khau" });
+      assert.equal(f.status, 401);
+    }
+    const blocked = await request(app).post("/api/auth/login").send({ username: "guard_test", password: "guard12345" });
+    assert.equal(blocked.status, 429);
+
+    // nhật ký: có login_success của admin + payment.create từ các test trước; HLV không xem được
+    const logs = await request(app).get("/api/audit?limit=300").set(auth);
+    assert.equal(logs.status, 200);
+    assert.ok(logs.body.some((l) => l.action === "login_success" && l.username === "admin"));
+    assert.ok(logs.body.some((l) => l.action === "payment.create"));
+    assert.ok(logs.body.some((l) => l.action === "login_failed" && l.username === "guard_test"));
+    const hlvLogin = await request(app).post("/api/auth/login").send({ username: "hlv_test", password: "hlv12345" });
+    const forbidden = await request(app).get("/api/audit").set({ Authorization: "Bearer " + hlvLogin.body.token });
+    assert.equal(forbidden.status, 403);
+
+    // sao lưu: đủ bảng chính, users không kèm password_hash
+    const backup = await request(app).get("/api/export/backup").set(auth);
+    assert.equal(backup.status, 200);
+    assert.ok(backup.body.tables.students.length >= 38);
+    assert.ok(backup.body.tables.payments.length >= 1);
+    assert.ok(!("password_hash" in backup.body.tables.users[0]));
   });
 });

@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const db = require("./db");
 
-const JWT_EXPIRES = "7d";
+const JWT_EXPIRES = "3d";
 
 function getSecret() {
   const s = process.env.JWT_SECRET;

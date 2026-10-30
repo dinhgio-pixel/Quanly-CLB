@@ -5,7 +5,21 @@ const path = require("path");
 
 function createApp() {
   const app = express();
+  app.set("trust proxy", 1); // chạy sau proxy của Render -> lấy đúng IP thật của người dùng
   app.use(express.json({ limit: "1mb" }));
+
+  // Lá chắn trình duyệt (security headers): chống nhúng trang lừa đảo, sniff dữ liệu...
+  app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "same-origin");
+    res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+    res.setHeader("Content-Security-Policy",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; " +
+      "base-uri 'self'; form-action 'self'");
+    next();
+  });
 
   // API
   app.use("/api/auth", require("./routes/auth"));
@@ -27,6 +41,7 @@ function createApp() {
   app.use("/api/rentals", require("./routes/rentals"));
   app.use("/api/private-sessions", require("./routes/private-sessions"));
   app.use("/api/performances", require("./routes/performances"));
+  app.use("/api/audit", require("./routes/audit"));
   app.use("/api/dashboard", require("./routes/dashboard"));
 
   app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));

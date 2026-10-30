@@ -4,6 +4,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth, requireRole } = require("../auth");
+const { logAudit } = require("../lib/audit");
 const { toMin, overlaps, weekdayOf, parseSchedule, dateStr } = require("../lib/slots");
 
 const router = express.Router();
@@ -106,6 +107,7 @@ router.post("/", async (req, res) => {
     [branch_id, coach_id, (b.student_name || "").trim(), (b.student_phone || "").trim(), b.session_date,
      b.start_time, b.end_time, fee, payHours, paymentId, timesheetId, (b.note || "").trim(), req.user.id]
   );
+  await logAudit(req, "private_session.create", "private_session", rows[0].id, "Tạo mới");
   res.status(201).json(rows[0]);
 });
 
@@ -179,6 +181,7 @@ router.delete("/:id", async (req, res) => {
   if (s.payment_id) await db.query("DELETE FROM payments WHERE id = $1", [s.payment_id]);
   if (s.timesheet_id) await db.query("DELETE FROM coach_timesheets WHERE id = $1", [s.timesheet_id]);
   await db.query("DELETE FROM private_sessions WHERE id = $1", [req.params.id]);
+  await logAudit(req, "private_session.delete", "private_session", Number(req.params.id), "Xóa");
   res.json({ ok: true });
 });
 

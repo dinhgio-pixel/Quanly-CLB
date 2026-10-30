@@ -4,6 +4,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth, requireRole } = require("../auth");
+const { logAudit } = require("../lib/audit");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("admin"));
@@ -52,6 +53,7 @@ router.post("/", async (req, res) => {
     [Number(branch_id), category, Math.round(Number(amount)), paid_on,
      (note || "").trim(), coach_id ? Number(coach_id) : null, req.user.id]
   );
+  await logAudit(req, "expense.create", "expense", rows[0].id, `Ghi chi ${category}: ${rows[0].amount}đ`);
   res.status(201).json(rows[0]);
 });
 
@@ -78,6 +80,7 @@ router.delete("/:id", async (req, res) => {
   const cur = await db.query("SELECT id FROM expenses WHERE id = $1", [req.params.id]);
   if (!cur.rows[0]) return res.status(404).json({ error: "Không tìm thấy khoản chi" });
   await db.query("DELETE FROM expenses WHERE id = $1", [req.params.id]);
+  await logAudit(req, "expense.delete", "expense", Number(req.params.id), "Xóa khoản chi");
   res.json({ ok: true });
 });
 

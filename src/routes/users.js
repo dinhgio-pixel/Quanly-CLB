@@ -4,6 +4,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
 const { requireAuth, requireRole } = require("../auth");
+const { logAudit } = require("../lib/audit");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("admin"));
@@ -33,6 +34,7 @@ router.post("/", async (req, res) => {
     const { username, password, role, full_name, belt_level, phone, student_id,
             pay_type, hourly_rate, fixed_salary, revenue_share_pct } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: "Thiếu tên đăng nhập/mật khẩu" });
+    if (String(password).length < 8) return res.status(400).json({ error: "Mật khẩu phải có ít nhất 8 ký tự" });
     if (!["admin", "coach", "student"].includes(role)) return res.status(400).json({ error: "Vai trò không hợp lệ" });
     const sid = role === "student" ? Number(student_id) || null : null;
     if (role === "student") {
@@ -51,6 +53,7 @@ router.post("/", async (req, res) => {
        PAY_TYPES.includes(pay_type) ? pay_type : "hourly",
        numOrNull(hourly_rate), numOrNull(fixed_salary), numOrNull(revenue_share_pct)]
     );
+    await logAudit(req, "user.create", "user", rows[0].id, `Tạo tài khoản ${rows[0].username} (${rows[0].role})`);
     res.status(201).json(rows[0]);
   } catch (e) {
     if (e.code === "23505") return res.status(400).json({ error: "Tên đăng nhập đã tồn tại" });
@@ -74,7 +77,10 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ error: "Không thể khóa chính tài khoản của mình" });
     }
     const sets = [], vals = [];
-    if (password) { sets.push(`password_hash = $${sets.length + 1}`); vals.push(await bcrypt.hash(password, 10)); }
+    if (password) {
+      if (String(password).length < 8) return res.status(400).json({ error: "Mật khẩu phải có ít nhất 8 ký tự" });
+      sets.push(`password_hash = $${sets.length + 1}`); vals.push(await bcrypt.hash(password, 10));
+    }
     if (role && ["admin", "coach", "student"].includes(role)) { sets.push(`role = $${sets.length + 1}`); vals.push(role); }
     if (full_name !== undefined) { sets.push(`full_name = $${sets.length + 1}`); vals.push(String(full_name).trim()); }
     if (belt_level !== undefined) { sets.push(`belt_level = $${sets.length + 1}`); vals.push(String(belt_level).trim()); }
@@ -94,6 +100,8 @@ router.put("/:id", async (req, res) => {
       vals
     );
     if (!rows[0]) return res.status(404).json({ error: "Không tìm thấy tài khoản" });
+    await logAudit(req, "user.update", "user", rows[0].id,
+      `Sửa tài khoản ${rows[0].username}${password ? " (đổi mật khẩu)" : ""}${status ? ` (trạng thái: ${status})` : ""}`);
     res.json(rows[0]);
   } catch (e) {
     res.status(500).json({ error: "Không cập nhật được tài khoản" });
@@ -109,6 +117,7 @@ router.delete("/:id", async (req, res) => {
     return res.status(400).json({ error: "Không thể xóa admin cuối cùng" });
   }
   await db.query("DELETE FROM users WHERE id = $1", [id]);
+  await logAudit(req, "user.delete", "user", Number(req.params.id), "Xóa tài khoản");
   res.json({ ok: true });
 });
 

@@ -7,6 +7,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth, requireRole } = require("../auth");
+const { logAudit } = require("../lib/audit");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("admin"));
@@ -198,6 +199,7 @@ router.post("/settle", async (req, res) => {
     );
     created++;
   }
+  await logAudit(req, "payroll.settle", "payroll", branchId, `Chốt lương tháng ${month}: ghi ${created} khoản chi`);
   res.json({ ok: true, created, skipped });
 });
 

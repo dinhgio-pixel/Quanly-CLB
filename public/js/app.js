@@ -142,6 +142,7 @@ const NAV = [
   ["#/packages", "📦", "Gói học", true],
   ["#/branches", "🏢", "Chi nhánh", true],
   ["#/users", "👥", "Tài khoản", true],
+  ["#/audit", "🛡️", "Nhật ký", true],
 ];
 
 function renderNav() {
@@ -1211,7 +1212,7 @@ window.profileForm = async () => {
 window.changePasswordForm = () => {
   openModal(`<h3>🔑 Đổi mật khẩu</h3><form id="f">
     <label>Mật khẩu hiện tại</label><input name="current_password" type="password" required autocomplete="current-password">
-    <label>Mật khẩu mới (ít nhất 6 ký tự)</label><input name="new_password" type="password" required autocomplete="new-password">
+    <label>Mật khẩu mới (ít nhất 8 ký tự)</label><input name="new_password" type="password" required autocomplete="new-password">
     <label>Nhập lại mật khẩu mới</label><input name="confirm_password" type="password" required autocomplete="new-password">
     <div class="btnrow"><button class="btn">Đổi mật khẩu</button><button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
   $("#f").onsubmit = async (e) => {
@@ -1508,6 +1509,51 @@ window.perfDel = async (id) => {
   catch (err) { toast(err.message); }
 };
 
+/* ----- nhật ký hoạt động + sao lưu (admin) ----- */
+const AUDIT_LABEL = {
+  login_success: "Đăng nhập", login_failed: "Đăng nhập sai", login_locked: "Bị chặn đăng nhập",
+  "payment.create": "Ghi khoản thu", "payment.update": "Sửa khoản thu", "payment.delete": "Xóa khoản thu",
+  "expense.create": "Ghi khoản chi", "expense.delete": "Xóa khoản chi",
+  "payroll.settle": "Chốt lương",
+  "user.create": "Tạo tài khoản", "user.update": "Sửa tài khoản", "user.delete": "Xóa tài khoản",
+  "user.change_password": "Đổi mật khẩu",
+  "rental.create": "Tạo lịch thuê", "rental.delete": "Xóa lịch thuê",
+  "private_session.create": "Tạo buổi 1:1", "private_session.delete": "Xóa buổi 1:1",
+  "performance.create": "Tạo sự kiện biểu diễn", "performance.delete": "Xóa sự kiện biểu diễn",
+};
+async function vAudit() {
+  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
+  V.innerHTML = pageHead("Nhật ký hoạt động",
+    `<button class="btn" onclick="downloadBackup()">⬇ Sao lưu toàn bộ dữ liệu</button>`) +
+    `<div class="card"><div class="row"><label style="margin:0">Xem nhóm</label>
+     <select id="auditFilter" style="width:auto" onchange="loadAudit()">
+       <option value="">Tất cả</option><option value="login">Đăng nhập</option>
+       <option value="payment">Khoản thu</option><option value="expense">Khoản chi</option>
+       <option value="payroll">Chốt lương</option><option value="user">Tài khoản</option>
+     </select></div>
+     <div id="auditBody"><p class="muted">Đang tải...</p></div>
+     <p class="muted">Nhật ký ghi lại ai đã làm gì với dữ liệu quan trọng (đăng nhập, thu/chi tiền, chốt lương, tài khoản...). File sao lưu chứa toàn bộ dữ liệu của hệ thống (không kèm mật khẩu) — tải về và cất ở nơi an toàn, khi cần Max dùng file đó khôi phục lại được.</p></div>`;
+  loadAudit();
+}
+window.loadAudit = async () => {
+  const f = ($("#auditFilter") || {}).value || "";
+  const rows = await api("GET", "/audit?limit=300" + (f ? "&action=" + encodeURIComponent(f) : ""));
+  $("#auditBody").innerHTML = rows.length
+    ? `<div class="tbl-wrap"><table><tr><th>Thời gian</th><th>Người dùng</th><th>Hành động</th><th>Chi tiết</th><th>IP</th></tr>
+      ${rows.map((r) => `<tr><td class="muted" style="white-space:nowrap">${esc(String(r.created_at || "").slice(0, 19).replace("T", " "))}</td>
+      <td><b>${esc(r.username || "—")}</b></td>
+      <td>${esc(AUDIT_LABEL[r.action] || r.action)}</td>
+      <td class="muted">${esc(r.detail || "")}</td>
+      <td class="muted">${esc(r.ip || "")}</td></tr>`).join("")}</table></div>`
+    : `<p class="muted">Chưa có bản ghi nào.</p>`;
+};
+window.downloadBackup = () => {
+  const day = todayInput();
+  downloadXlsx("/export/backup", `sao-luu-quanlyclb-${day}.json`)
+    .then(() => toast("Đã tải file sao lưu"))
+    .catch((e) => toast(e.message));
+};
+
 /* ----- lớp học (học viên xem tất cả lớp, chia theo chi nhánh) ----- */
 async function vStudentClasses() {
   V.innerHTML = `<p class="muted">Đang tải...</p>`;
@@ -1657,7 +1703,7 @@ window.userForm = async (id) => {
     <div class="grid" style="grid-template-columns:1fr 1fr;gap:.4rem .6rem">
     <div><label>Cấp đai (HLV)</label><input name="belt_level" value="${esc(u.belt_level || "")}" placeholder="VD: Hoàng đai"></div>
     <div><label>SĐT</label><input name="phone" value="${esc(u.phone || "")}"></div></div>
-    <label>Mật khẩu ${id ? "(để trống nếu không đổi)" : ""}</label><input name="password" type="password" ${id ? "" : "required"}>
+    <label>Mật khẩu ${id ? "(để trống nếu không đổi)" : ""} — tối thiểu 8 ký tự</label><input name="password" type="password" ${id ? "" : "required"}>
     <label>Vai trò</label><select name="role" id="uRole" onchange="document.getElementById('uStudentWrap').style.display=this.value==='student'?'':'none';document.getElementById('uPayWrap').style.display=this.value==='coach'?'':'none'">
       <option value="coach" ${u.role === "coach" ? "selected" : ""}>Huấn luyện viên</option>
       <option value="admin" ${u.role === "admin" ? "selected" : ""}>Quản trị viên</option>
@@ -1763,6 +1809,7 @@ async function route() {
     else if (seg[0] === "fees") await vFees();
     else if (seg[0] === "payroll") await vPayroll();
     else if (seg[0] === "activities") await vActivities();
+    else if (seg[0] === "audit") await vAudit();
     else if (seg[0] === "users") await vUsers();
     else await vDashboard();
   } catch (err) {

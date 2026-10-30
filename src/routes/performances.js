@@ -4,6 +4,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth, requireRole } = require("../auth");
+const { logAudit } = require("../lib/audit");
 const { dateStr } = require("../lib/slots");
 
 const router = express.Router();
@@ -76,6 +77,7 @@ router.post("/", async (req, res) => {
      Math.max(0, Math.round(Number(b.other_cost) || 0)),
      paymentId, expenseId, (b.note || "").trim(), req.user.id]
   );
+  await logAudit(req, "performance.create", "performance", rows[0].id, "Tạo mới");
   res.status(201).json({ ...rows[0], profit: rows[0].revenue_fee - rows[0].personnel_cost - rows[0].other_cost });
 });
 
@@ -138,6 +140,7 @@ router.delete("/:id", async (req, res) => {
   if (p.payment_id) await db.query("DELETE FROM payments WHERE id = $1", [p.payment_id]);
   if (p.expense_id) await db.query("DELETE FROM expenses WHERE id = $1", [p.expense_id]);
   await db.query("DELETE FROM performances WHERE id = $1", [req.params.id]);
+  await logAudit(req, "performance.delete", "performance", Number(req.params.id), "Xóa");
   res.json({ ok: true });
 });
 

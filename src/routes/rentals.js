@@ -4,6 +4,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth, requireRole } = require("../auth");
+const { logAudit } = require("../lib/audit");
 const { toMin, overlaps, weekdayOf, parseSchedule, dateStr } = require("../lib/slots");
 
 const router = express.Router();
@@ -114,6 +115,7 @@ router.post("/", async (req, res) => {
      b.start_time, b.end_time, price, total, b.coach_id ? Number(b.coach_id) : null,
      b.status === "done" ? "done" : "booked", paymentId, (b.note || "").trim(), req.user.id]
   );
+  await logAudit(req, "rental.create", "rental", rows[0].id, "Tạo mới");
   res.status(201).json(rows[0]);
 });
 
@@ -170,6 +172,7 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM payments WHERE id = $1", [cur.rows[0].payment_id]);
   }
   await db.query("DELETE FROM rentals WHERE id = $1", [req.params.id]);
+  await logAudit(req, "rental.delete", "rental", Number(req.params.id), "Xóa");
   res.json({ ok: true });
 });
 

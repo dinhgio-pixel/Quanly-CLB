@@ -291,4 +291,24 @@ router.get("/finance", requireRole("admin"), async (req, res) => {
   sendXlsx(res, wb, `bao-cao-tai-chinh-${slug(branchName)}-${month}.xlsx`);
 });
 
+// --- Sao lưu toàn bộ dữ liệu ra file JSON (chỉ admin, KHÔNG kèm mật khẩu) ---
+router.get("/backup", requireRole("admin"), async (req, res) => {
+  const tables = ["branches", "classes", "packages", "students", "coach_classes", "coach_branches",
+    "attendance_sessions", "attendance_records", "teaching_logs", "payments", "expenses",
+    "coach_timesheets", "shift_swaps", "rentals", "private_sessions", "performances", "audit_logs"];
+  const data = { exported_at: new Date().toISOString(), app: "quanlyclb", tables: {} };
+  const users = await db.query(
+    `SELECT id, username, role, full_name, belt_level, phone, status, student_id,
+            pay_type, hourly_rate, fixed_salary, revenue_share_pct, created_at FROM users ORDER BY id`);
+  data.tables.users = users.rows;
+  for (const t of tables) {
+    const { rows } = await db.query(`SELECT * FROM ${t} ORDER BY id`);
+    data.tables[t] = rows;
+  }
+  const day = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="sao-luu-quanlyclb-${day}.json"`);
+  res.send(JSON.stringify(data, null, 1));
+});
+
 module.exports = router;

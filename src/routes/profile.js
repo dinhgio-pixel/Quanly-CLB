@@ -4,6 +4,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
 const { requireAuth, requireRole } = require("../auth");
+const { logAudit } = require("../lib/audit");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -60,8 +61,8 @@ router.post("/change-password", async (req, res) => {
   if (!current_password || !new_password) {
     return res.status(400).json({ error: "Nhập đủ mật khẩu hiện tại và mật khẩu mới" });
   }
-  if (String(new_password).length < 6) {
-    return res.status(400).json({ error: "Mật khẩu mới phải có ít nhất 6 ký tự" });
+  if (String(new_password).length < 8) {
+    return res.status(400).json({ error: "Mật khẩu mới phải có ít nhất 8 ký tự" });
   }
   if (String(new_password) === String(current_password)) {
     return res.status(400).json({ error: "Mật khẩu mới phải khác mật khẩu hiện tại" });
@@ -72,6 +73,7 @@ router.post("/change-password", async (req, res) => {
   if (!ok) return res.status(400).json({ error: "Mật khẩu hiện tại không đúng" });
   const hash = await bcrypt.hash(String(new_password), 10);
   await db.query("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, req.user.id]);
+  await logAudit(req, "user.change_password", "user", req.user.id, "Tự đổi mật khẩu đăng nhập");
   res.json({ ok: true });
 });
 

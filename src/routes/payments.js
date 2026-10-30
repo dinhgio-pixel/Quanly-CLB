@@ -3,6 +3,7 @@
 const express = require("express");
 const db = require("../db");
 const { requireAuth, requireRole } = require("../auth");
+const { logAudit } = require("../lib/audit");
 const { accessibleClassIds, classIdCondition, assertClassAccess, studentClassId, isoDate } = require("../helpers");
 
 const router = express.Router();
@@ -128,6 +129,7 @@ router.post("/", async (req, res) => {
   );
   // Nếu là học phí lớp -> tính lại "HP đến ngày" cho HV
   if (sid && category === "tuition") await recalcPaidThrough(sid);
+  await logAudit(req, "payment.create", "payment", rows[0].id, `Ghi thu ${category}: ${rows[0].amount}đ`);
   res.status(201).json(rows[0]);
 });
 
@@ -152,6 +154,7 @@ router.put("/:id", async (req, res) => {
     `UPDATE payments SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING *`, vals
   );
   if (pay.student_id) await recalcPaidThrough(pay.student_id);
+  await logAudit(req, "payment.update", "payment", rows[0].id, `Sửa khoản thu: ${rows[0].amount}đ`);
   res.json(rows[0]);
 });
 
@@ -164,6 +167,7 @@ router.delete("/:id", async (req, res) => {
   const sid = cur.rows[0].student_id;
   await db.query("DELETE FROM payments WHERE id = $1", [req.params.id]);
   if (sid) await recalcPaidThrough(sid);
+  await logAudit(req, "payment.delete", "payment", Number(req.params.id), `Xóa khoản thu`);
   res.json({ ok: true });
 });
 
