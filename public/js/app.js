@@ -129,7 +129,6 @@ const NAV = [
   ["#/dashboard", "📊", "Tổng quan"],
   ["#/classes", "🏫", "Lớp học"],
   ["#/students", "🧑‍🎓", "Học viên"],
-  ["#/attendance", "✅", "Điểm danh"],
   ["#/teaching-logs", "📝", "Nhật ký dạy"],
   ["#/timesheets", "⏱️", "Chấm công"],
   ["#/shift-swaps", "🔄", "Đổi ca"],
@@ -371,7 +370,7 @@ async function vDashboard() {
   <div class="card"><h3>📅 Buổi học hôm nay (${d.todaySessions.length})</h3>
     ${d.todaySessions.length ? `<div class="tbl-wrap"><table><tr><th>Lớp</th><th>Lịch</th><th>Điểm danh</th></tr>
       ${d.todaySessions.map((s) => `<tr><td>${esc(s.class_name)}</td><td class="muted">${esc(s.schedule || "")}</td>
-      <td><a href="#/attendance?class=${s.class_id || ""}">${s.records} HV</a></td></tr>`).join("")}</table></div>`
+      <td><a href="#/classes/${s.class_id || ""}/attendance">${s.records} HV</a></td></tr>`).join("")}</table></div>`
       : `<p class="muted">Chưa tạo buổi điểm danh nào hôm nay.</p>`}</div>
   ${isAdmin() ? `<div id="dashBranches"></div>` : ""}`;
   if (isAdmin()) loadDashBranches();
@@ -848,28 +847,9 @@ window.pkgDel = async (id) => {
 };
 
 /* ----- attendance ----- */
-async function vAttendance() {
-  const params = new URLSearchParams(location.hash.split("?")[1] || "");
-  const preClass = params.get("class") || (S.classes[0] ? S.classes[0].id : "");
-  V.innerHTML = pageHead("Điểm danh") +
-    `<div class="card"><div class="row">
-      <select id="aClass" style="flex:1;min-width:150px">${S.classes.map((c) => `<option value="${c.id}" ${c.id == preClass ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
-      <input type="date" id="aDate" value="${todayInput()}" style="width:auto">
-      <button class="btn" onclick="takeAttendance()">Điểm danh</button>
-      <button class="btn ghost" onclick="attSummary()">% Chuyên cần</button></div>
-      <div id="aList" style="margin-top:.7rem"></div></div>`;
-  $("#aClass").onchange = loadAttSessions; loadAttSessions();
-}
-async function loadAttSessions() {
-  const cid = $("#aClass").value;
-  const ss = await api("GET", `/attendance/sessions?class_id=${cid}`);
-  $("#aList").innerHTML = ss.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Có mặt</th><th></th></tr>
-    ${ss.map((s) => `<tr><td>${fmtDate(s.session_date)}</td><td>${s.present_count}/${s.total_count}</td>
-    <td><button class="btn small ghost" onclick="takeAttendance(${s.class_id},'${s.session_date}')">Sửa</button></td></tr>`).join("")}</table></div>`
-    : `<p class="muted">Chưa có buổi điểm danh nào.</p>`;
-}
 window.takeAttendance = async (cid, date) => {
-  cid = cid || $("#aClass").value; date = date || $("#aDate").value;
+  cid = cid || (S.classes[0] && S.classes[0].id);
+  date = date || (($("#attDate") || {}).value) || todayInput();
   const ss = await api("GET", `/attendance/sessions?class_id=${cid}`);
   const hit = ss.find((s) => String(s.session_date).slice(0, 10) === date);
   let roster = [];
@@ -920,7 +900,7 @@ window.viewSession = async (sid) => {
   } catch (err) { toast(err.message); }
 };
 window.attSummary = async (cid) => {
-  cid = cid || ($("#aClass") ? $("#aClass").value : null) || (S.classes[0] && S.classes[0].id);
+  cid = cid || (S.classes[0] && S.classes[0].id);
   const rows = await api("GET", `/attendance/summary?class_id=${cid}`);
   openModal(`<h3>% Chuyên cần — ${esc(className(cid))}</h3>
     <div class="tbl-wrap"><table><tr><th>Học viên</th><th>Buổi</th><th>Có mặt</th><th>%</th></tr>
@@ -1801,7 +1781,10 @@ async function route() {
     else if (seg[0] === "students" && seg[1]) await vStudentDetail(seg[1]);
     else if (seg[0] === "students") await vStudents();
     else if (seg[0] === "packages") await vPackages();
-    else if (seg[0] === "attendance") await vAttendance();
+    else if (seg[0] === "attendance") {
+      const qc = new URLSearchParams(location.hash.split("?")[1] || "").get("class");
+      location.hash = qc ? `#/classes/${qc}/attendance` : "#/classes";
+    }
     else if (seg[0] === "teaching-logs") await vTeachingLogs();
     else if (seg[0] === "timesheets") await vTimesheets();
     else if (seg[0] === "shift-swaps") await vShiftSwaps();
