@@ -17,6 +17,30 @@ const { getPool } = require("../src/db");
   await pool.query("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin','coach','student'))");
   console.log("[init] users role check OK");
 
+  // KHÓA CỬA PHỤ SUPABASE (khắc phục cảnh báo rls_disabled_in_public / sensitive_columns_exposed):
+  // Supabase mặc định mở 1 lớp API công khai (PostgREST + khóa anon). Bật RLS cho MỌI bảng
+  // (không tạo policy nào = chặn hoàn toàn anon/authenticated qua lớp API đó) và thu hồi quyền.
+  // App của mình kết nối thẳng Postgres bằng tài khoản quản trị (bypass RLS) nên KHÔNG bị ảnh hưởng.
+  // Bước này tự nuốt lỗi: có trục trặc cũng không được làm app không khởi động được.
+  try {
+    const tbl = await pool.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+    );
+    let locked = 0;
+    for (const r of tbl.rows) {
+      try {
+        await pool.query(`ALTER TABLE public."${r.table_name}" ENABLE ROW LEVEL SECURITY`);
+        locked++;
+      } catch (e) { console.log(`[init] RLS skip ${r.table_name}: ${e.message}`); }
+    }
+    try {
+      await pool.query("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated");
+    } catch (e) { console.log("[init] REVOKE skip: " + e.message); }
+    console.log(`[init] RLS lockdown OK (${locked}/${tbl.rows.length} bảng)`);
+  } catch (e) {
+    console.log("[init] RLS lockdown lỗi (bỏ qua, app vẫn chạy): " + e.message);
+  }
+
   const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM branches");
   if (rows[0].n === 0) {
     const seed = fs.readFileSync(path.join(__dirname, "..", "seed.sql"), "utf8");
