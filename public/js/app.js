@@ -137,7 +137,7 @@ const NAV = [
   ["#/payroll", "💵", "Lương HLV", true],
   ["#/activities", "🏟️", "Hoạt động", true],
   ["#/profile", "👤", "Hồ sơ", false, "coach"],
-  ["#/former-students", "🗂️", "Học viên cũ", true],
+  ["#/former-students", "🗂️", "Học viên cũ"],
   ["#/packages", "📦", "Gói học", true],
   ["#/branches", "🏢", "Chi nhánh", true],
   ["#/users", "👥", "Tài khoản", true],
@@ -486,7 +486,7 @@ async function vClassDetail(id, tab) {
     `<p class="muted">${esc(c.schedule)}${c.room ? " · " + esc(c.room) : ""}${isAdmin() ? ` · ${fmtVND(c.monthly_fee)}/tháng` : ""}</p>` + body;
   const el = $("#tabBody");
   if (tab === "students") {
-    const list = await api("GET", `/students?class_id=${id}`);
+    const list = await api("GET", `/students?class_id=${id}&status=active`);
     el.innerHTML = `<div class="row spread"><b>${list.length} học viên</b><div class="btnrow" style="margin:0">
       <button class="btn small ghost" onclick="exportStudents(${id})">⬇ Xuất Excel</button>
       <button class="btn small" onclick="studentForm(null,${id})">+ Thêm HV</button></div></div>
@@ -595,19 +595,19 @@ window.delReqReview = async (id, ok) => {
 };
 // Danh sách học viên cũ (đã từng tập và nghỉ)
 async function vFormerStudents() {
-  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
   V.innerHTML = pageHead("Học viên cũ") + `<div id="fsBody"><p class="muted">Đang tải...</p></div>`;
-  const list = await api("GET", `/students?branch_id=${S.branchId}&status=stopped`);
+  const list = await api("GET", `/students?branch_id=${S.branchId}&status=former`);
   $("#fsBody").innerHTML = list.length ? `<div class="card"><div class="tbl-wrap"><table>
-    <tr><th>Họ tên</th><th>Lớp</th><th>SĐT</th><th>Ngày vào</th><th>Ngày nghỉ</th><th>Nguyên nhân nghỉ</th></tr>
-    ${list.map((s) => `<tr><td><b>${esc(s.full_name)}</b></td><td>${esc(s.class_name || "—")}</td>
+    <tr><th>Họ tên</th><th>CLB</th><th>Lớp đã học</th><th>Trạng thái</th><th>SĐT</th><th>Ngày vào</th><th>Ngày nghỉ</th><th>Nguyên nhân nghỉ</th></tr>
+    ${list.map((s) => `<tr class="clickable" onclick="location.hash='#/students/${s.id}'"><td><b>${esc(s.full_name)}</b></td><td>${esc(s.branch_name || "—")}</td><td>${esc(s.class_name || "—")}</td>
+      <td>${feeBadge(s.fee_state)}</td>
       <td class="muted">${esc(s.phone || "—")}</td><td>${fmtDate(s.joined_on)}</td><td>${fmtDate(s.stopped_at)}</td>
       <td class="muted">${esc(s.leave_reason || "—")}</td></tr>`).join("")}</table></div></div>`
     : `<div class="card"><p class="muted">Chưa có học viên cũ.</p></div>`;
 }
 window.studentSearch = async () => {
   const q = $("#q").value.trim(), fc = $("#fClass").value, ff = $("#fFee").value;
-  let url = `/students?branch_id=${S.branchId}`;
+  let url = `/students?branch_id=${S.branchId}&status=active`;
   if (q) url += `&q=${encodeURIComponent(q)}`;
   if (fc) url += `&class_id=${fc}`;
   const list = await api("GET", url);
@@ -858,7 +858,7 @@ window.takeAttendance = async (cid, date) => {
     const full = await api("GET", `/attendance/sessions/${hit.id}`);
     roster = full.roster.map((r) => ({ ...r, status: (full.records.find((x) => x.student_id === r.id) || {}).status || "present" }));
   } else {
-    roster = (await api("GET", `/students?class_id=${cid}`)).map((s) => ({ id: s.id, full_name: s.full_name, status: "present" }));
+    roster = (await api("GET", `/students?class_id=${cid}&status=active`)).map((s) => ({ id: s.id, full_name: s.full_name, status: "present" }));
   }
   openModal(`<h3>Điểm danh — ${esc(className(cid))} · ${fmtDate(date)}</h3>
     ${roster.map((r) => `<div class="att-row"><div class="nm">${esc(r.full_name)}</div>

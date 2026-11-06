@@ -8,7 +8,7 @@ const { accessibleClassIds, classIdCondition, assertClassAccess, studentClassId,
 const router = express.Router();
 router.use(requireAuth);
 
-const SELECT = `s.*, c.name AS class_name, p.name AS package_name, p.monthly_fee AS package_fee, p.sessions_per_week AS package_sessions`;
+const SELECT = `s.*, c.name AS class_name, br.name AS branch_name, p.name AS package_name, p.monthly_fee AS package_fee, p.sessions_per_week AS package_sessions`;
 
 // HLV không được thấy số tiền: ẩn package_fee và amount các khoản thu
 function stripMoneyForCoach(s) {
@@ -27,13 +27,15 @@ router.get("/", async (req, res) => {
   }
   if (branch_id) { conds.push(`s.branch_id = $${vals.length + 1}`); vals.push(Number(branch_id)); }
   if (class_id) { conds.push(`s.class_id = $${vals.length + 1}`); vals.push(Number(class_id)); }
-  if (status) { conds.push(`s.status = $${vals.length + 1}`); vals.push(status); }
+  if (status === "former") { conds.push("s.status IN ('paused','stopped')"); }
+  else if (status) { conds.push(`s.status = $${vals.length + 1}`); vals.push(status); }
   if (q) { conds.push(`(s.full_name ILIKE $${vals.length + 1} OR s.phone ILIKE $${vals.length + 1})`); vals.push(`%${q}%`); }
   if (ids) { conds.push(classIdCondition(ids, "s.class_id")); }
   const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
   const { rows } = await db.query(
     `SELECT ${SELECT} FROM students s
      LEFT JOIN classes c ON c.id = s.class_id
+     LEFT JOIN branches br ON br.id = s.branch_id
      LEFT JOIN packages p ON p.id = s.package_id
      ${where} ORDER BY s.full_name LIMIT 500`, vals
   );
@@ -164,6 +166,7 @@ router.get("/:id", async (req, res) => {
   const { rows } = await db.query(
     `SELECT ${SELECT} FROM students s
      LEFT JOIN classes c ON c.id = s.class_id
+     LEFT JOIN branches br ON br.id = s.branch_id
      LEFT JOIN packages p ON p.id = s.package_id
      WHERE s.id = $1`, [req.params.id]
   );

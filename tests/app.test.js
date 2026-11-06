@@ -146,6 +146,36 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(full.body.records.find((r) => r.student_id === 9).status, "present");
   });
 
+  it("HV tạm dừng/dừng học thuộc học viên cũ, không vào điểm danh", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const c = await request(app).post("/api/students").set(auth).send({
+      branch_id: 1, class_id: 2, package_id: 1, full_name: "HV Tam Dung Test",
+      phone: "0911111111", joined_on: "2026-10-13", paid_through: "2026-12-31",
+    });
+    assert.equal(c.status, 201);
+    const sid = c.body.id;
+    const upd = await request(app).put("/api/students/" + sid).set(auth).send({ status: "paused" });
+    assert.equal(upd.status, 200);
+    // Không còn trong danh sách đang học của lớp
+    const act = await request(app).get("/api/students?class_id=2&status=active").set(auth);
+    assert.ok(!act.body.some((s) => s.id === sid));
+    // Có mặt trong nhóm học viên cũ, kèm tên CLB đã học
+    const former = await request(app).get("/api/students?status=former").set(auth);
+    const f = former.body.find((s) => s.id === sid);
+    assert.ok(f);
+    assert.equal(f.status, "paused");
+    assert.ok(f.branch_name);
+    // Điểm danh: record của HV tạm dừng bị bỏ qua, roster sửa buổi cũng không có
+    const sv = await request(app).post("/api/attendance/sessions").set(auth).send({
+      class_id: 2, session_date: "2026-10-15",
+      records: [{ student_id: sid, status: "present" }, { student_id: 9, status: "present" }],
+    });
+    assert.equal(sv.status, 200);
+    const full = await request(app).get("/api/attendance/sessions/" + sv.body.session_id).set(auth);
+    assert.ok(!full.body.records.some((r) => r.student_id === sid));
+    assert.ok(!full.body.roster.some((r) => r.id === sid));
+  });
+
   it("nhật ký giảng dạy CRUD", async () => {
     const auth = { Authorization: "Bearer " + adminToken };
     const c = await request(app).post("/api/teaching-logs").set(auth).send({
