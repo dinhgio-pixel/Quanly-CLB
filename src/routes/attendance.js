@@ -10,7 +10,8 @@ router.use(requireAuth);
 
 // Lấy/cập nhật buổi điểm danh (upsert theo class_id + session_date)
 router.post("/sessions", async (req, res) => {
-  const { class_id, session_date, note, records } = req.body || {};
+  let { class_id, session_date, note, records } = req.body || {};
+  if (session_date) session_date = String(session_date).slice(0, 10); // chấp nhận cả dạng ISO đầy đủ
   const classId = Number(class_id);
   if (!classId || !session_date) return res.status(400).json({ error: "Thiếu lớp/ngày điểm danh" });
   if (!(await assertClassAccess(req, res, classId))) return;

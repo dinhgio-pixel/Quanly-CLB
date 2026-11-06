@@ -126,6 +126,26 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(r9.rate, 100);
   });
 
+  it("sửa điểm danh đã lưu + ngày dạng ISO đầy đủ", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    // Postgres thật trả ngày dạng ISO đầy đủ — gửi lên phải được chấp nhận, chuẩn hoá về YYYY-MM-DD
+    const s1 = await request(app).post("/api/attendance/sessions").set(auth).send({
+      class_id: 2, session_date: "2026-10-14T17:00:00.000Z",
+      records: [{ student_id: 9, status: "absent" }],
+    });
+    assert.equal(s1.status, 200);
+    // Lưu lại cùng ngày = sửa buổi cũ, không tạo buổi trùng
+    const s2 = await request(app).post("/api/attendance/sessions").set(auth).send({
+      class_id: 2, session_date: "2026-10-14",
+      records: [{ student_id: 9, status: "present" }],
+    });
+    assert.equal(s2.status, 200);
+    assert.equal(s2.body.session_id, s1.body.session_id);
+    const full = await request(app).get("/api/attendance/sessions/" + s1.body.session_id).set(auth);
+    assert.equal(String(full.body.session_date).slice(0, 10), "2026-10-14");
+    assert.equal(full.body.records.find((r) => r.student_id === 9).status, "present");
+  });
+
   it("nhật ký giảng dạy CRUD", async () => {
     const auth = { Authorization: "Bearer " + adminToken };
     const c = await request(app).post("/api/teaching-logs").set(auth).send({

@@ -507,7 +507,7 @@ async function vClassDetail(id, tab) {
     const ss = await api("GET", `/attendance/sessions?class_id=${id}`);
     $("#attList").innerHTML = ss.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Có mặt</th><th></th></tr>
       ${ss.map((s) => `<tr><td><a href="javascript:void(0)" onclick="viewSession(${s.id})">${fmtDate(s.session_date)}</a></td><td>${s.present_count}/${s.total_count}</td>
-      <td><button class="btn small ghost" onclick="takeAttendance(${id},'${s.session_date}')">Sửa</button></td></tr>`).join("")}</table></div>`
+      <td><button class="btn small ghost" onclick="takeAttendance(${id},'${String(s.session_date).slice(0, 10)}')">Sửa</button></td></tr>`).join("")}</table></div>`
       : `<p class="muted">Chưa có buổi điểm danh nào.</p>`;
   } else if (tab === "logs") {
     const logs = await api("GET", `/teaching-logs?class_id=${id}`);
@@ -850,6 +850,7 @@ window.pkgDel = async (id) => {
 window.takeAttendance = async (cid, date) => {
   cid = cid || (S.classes[0] && S.classes[0].id);
   date = date || (($("#attDate") || {}).value) || todayInput();
+  date = String(date).slice(0, 10); // Postgres trả ngày dạng ISO đầy đủ -> cắt về YYYY-MM-DD
   const ss = await api("GET", `/attendance/sessions?class_id=${cid}`);
   const hit = ss.find((s) => String(s.session_date).slice(0, 10) === date);
   let roster = [];
