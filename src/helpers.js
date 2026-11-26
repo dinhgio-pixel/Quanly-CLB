@@ -40,9 +40,10 @@ function parseHours(schedule) {
   return Math.round(h * 10) / 10;
 }
 
-// null = admin (toàn quyền); mảng rỗng = HLV chưa được gán lớp nào
+// null = admin/manager (xem toàn bộ); mảng rỗng = HLV chưa được gán lớp nào.
+// Lưu ý: quyền GHI của manager bị chốt riêng ở managerWriteGuard (auth.js) + từng route.
 async function accessibleClassIds(user) {
-  if (user.role === "admin") return null;
+  if (user.role === "admin" || user.role === "manager") return null;
   return getCoachClassIds(user.id);
 }
 
@@ -55,7 +56,7 @@ function classIdCondition(ids, col) {
 }
 
 async function assertClassAccess(req, res, classId) {
-  if (req.user.role === "admin") return true;
+  if (req.user.role === "admin" || req.user.role === "manager") return true;
   const ids = await getCoachClassIds(req.user.id);
   if (!ids.includes(Number(classId))) {
     res.status(403).json({ error: "Bạn không được phân công quản lý lớp này" });

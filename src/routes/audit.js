@@ -2,10 +2,10 @@
 // Xem nhật ký hoạt động (chỉ admin)
 const express = require("express");
 const db = require("../db");
-const { requireAuth, requireRole } = require("../auth");
+const { requireAuth, requireRole, readOnlyForManager } = require("../auth");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth, requireRole("admin", "manager"), readOnlyForManager);
 
 router.get("/", async (req, res) => {
   const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));

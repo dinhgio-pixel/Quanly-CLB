@@ -68,7 +68,7 @@ router.get("/catalog", async (req, res) => {
   res.json(rows.map((c) => ({ ...c, coaches: coachMap[c.id] || [] })));
 });
 
-router.post("/", requireRole("admin"), async (req, res) => {
+router.post("/", requireRole("admin", "manager"), async (req, res) => {
   const { branch_id, name, schedule, room, monthly_fee } = req.body || {};
   if (!branch_id || !name || !name.trim()) return res.status(400).json({ error: "Thiếu chi nhánh/tên lớp" });
   const { rows } = await db.query(

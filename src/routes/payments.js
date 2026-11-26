@@ -41,7 +41,7 @@ router.get("/", async (req, res) => {
 // Admin đánh dấu tháng đã đóng / chưa đóng cho học viên (đồng bộ với payments)
 // paid=true: tạo khoản thu học phí cho đúng tháng đó; paid=false: xóa khoản thu
 // do chức năng này tạo (chỉ xóa đúng khoản đã đánh dấu, không động vào khoản thu tay)
-router.post("/fee-month", requireRole("admin"), async (req, res) => {
+router.post("/fee-month", requireRole("admin", "manager"), async (req, res) => {
   const { student_id, year, month, paid } = req.body || {};
   const sid = Number(student_id), y = Number(year), m = Number(month);
   if (!sid || !y || !m || m < 1 || m > 12 || typeof paid !== "boolean") {
@@ -114,12 +114,12 @@ router.post("/", async (req, res) => {
   if (sid) {
     const cls = await studentClassId(db, sid);
     if (cls === undefined) return res.status(404).json({ error: "Không tìm thấy học viên" });
-    if (req.user.role !== "admin" && !cls) {
+    if (!["admin", "manager"].includes(req.user.role) && !cls) {
       return res.status(403).json({ error: "Bạn không được phân công quản lý học viên này" });
     }
     if (cls && !(await assertClassAccess(req, res, cls))) return;
-  } else if (req.user.role !== "admin") {
-    return res.status(403).json({ error: "Chỉ admin ghi nhận khoản thu không gắn học viên" });
+  } else if (!["admin", "manager"].includes(req.user.role)) {
+    return res.status(403).json({ error: "Chỉ admin/quản lý ghi nhận khoản thu không gắn học viên" });
   }
   const { rows } = await db.query(
     `INSERT INTO payments (branch_id, student_id, category, amount, paid_on, paid_through, note, created_by, coach_id)
@@ -137,7 +137,7 @@ router.put("/:id", async (req, res) => {
   const cur = await db.query("SELECT * FROM payments WHERE id = $1", [req.params.id]);
   const pay = cur.rows[0];
   if (!pay) return res.status(404).json({ error: "Không tìm thấy khoản thu" });
-  if (req.user.role !== "admin" && pay.created_by !== req.user.id) {
+  if (!["admin", "manager"].includes(req.user.role) && pay.created_by !== req.user.id) {
     return res.status(403).json({ error: "Không có quyền sửa khoản thu này" });
   }
   const { category, amount, paid_on, paid_through, note } = req.body || {};
@@ -161,7 +161,7 @@ router.put("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   const cur = await db.query("SELECT id, student_id, created_by FROM payments WHERE id = $1", [req.params.id]);
   if (!cur.rows[0]) return res.status(404).json({ error: "Không tìm thấy khoản thu" });
-  if (req.user.role !== "admin" && cur.rows[0].created_by !== req.user.id) {
+  if (!["admin", "manager"].includes(req.user.role) && cur.rows[0].created_by !== req.user.id) {
     return res.status(403).json({ error: "Không có quyền xóa khoản thu này" });
   }
   const sid = cur.rows[0].student_id;
@@ -185,7 +185,7 @@ async function recalcPaidThrough(sid) {
 }
 
 // Tổng quan doanh thu theo nhóm (chỉ admin)
-router.get("/revenue/summary", requireRole("admin"), async (req, res) => {
+router.get("/revenue/summary", requireRole("admin", "manager"), async (req, res) => {
   const { branch_id, from, to } = req.query;
   const conds = [], vals = [];
   if (branch_id) { conds.push(`branch_id = $${vals.length + 1}`); vals.push(Number(branch_id)); }

@@ -646,7 +646,9 @@ describe("Quản lý CLB Vovinam (production)", () => {
 
   it("học viên nghỉ 3 buổi trong 30 ngày -> /me trả absent_30d", async () => {
     const auth = { Authorization: "Bearer " + adminToken };
-    for (const dt of ["2026-10-14", "2026-10-15", "2026-10-16"]) {
+    // Ngày động (hôm nay, -1, -2 ngày) để luôn nằm trong cửa sổ 30 ngày bất kể ngày chạy test
+    const dyn = (back) => { const d = new Date(); d.setDate(d.getDate() - back); return d.toISOString().slice(0, 10); };
+    for (const dt of [dyn(0), dyn(1), dyn(2)]) {
       const sv = await request(app).post("/api/attendance/sessions").set(auth).send({
         class_id: 1, session_date: dt, records: [{ student_id: 1, status: "absent" }] });
       assert.equal(sv.status, 200);
@@ -1042,5 +1044,84 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.ok(backup.body.tables.students.length >= 38);
     assert.ok(backup.body.tables.payments.length >= 1);
     assert.ok(!("password_hash" in backup.body.tables.users[0]));
+  });
+
+  it("Tài khoản Quản Lý: xem toàn bộ như admin, chỉ ghi Lớp (thêm) + Học viên + Thu phí", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const today = new Date().toISOString().slice(0, 10);
+    const [yy, mm] = today.split("-").map(Number);
+
+    // Admin tạo tài khoản Quản Lý
+    const created = await request(app).post("/api/users").set(auth).send({
+      username: "quanly_test", password: "quanly12345", role: "manager", full_name: "Quản Lý Test" });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.role, "manager");
+    const mgrToken = await loginAs("quanly_test", "quanly12345");
+    const mgr = { Authorization: "Bearer " + mgrToken };
+
+    // ĐỌC: toàn bộ như admin
+    for (const url of ["/api/students", "/api/users", "/api/audit", `/api/payroll?branch_id=1&month=${today.slice(0, 7)}`,
+      "/api/payments/revenue/summary", "/api/dashboard/branches", "/api/students?status=former",
+      "/api/classes", `/api/expenses/summary?branch_id=1&month=${today.slice(0, 7)}`]) {
+      const r = await request(app).get(url).set(mgr);
+      assert.equal(r.status, 200, "manager đọc " + url);
+    }
+    const allStudents = await request(app).get("/api/students").set(mgr);
+    assert.ok(allStudents.body.length >= 38, "manager thấy toàn bộ học viên");
+
+    // GHI ĐƯỢC: thêm lớp học
+    const cls = await request(app).post("/api/classes").set(mgr).send({
+      branch_id: 1, name: "Lớp Quản Lý Test", schedule: "Thứ 7 9:00", room: "Sân A", monthly_fee: 500000 });
+    assert.equal(cls.status, 201);
+
+    // GHI ĐƯỢC: học viên (thêm mới)
+    const st = await request(app).post("/api/students").set(mgr).send({
+      branch_id: 1, class_id: 2, full_name: "HV Của Quản Lý", joined_on: today, status: "active" });
+    assert.equal(st.status, 201);
+    const sid = st.body.id;
+
+    // GHI ĐƯỢC: thu phí — đánh dấu tháng + ghi khoản thu + sửa khoản thu
+    const fm = await request(app).post("/api/payments/fee-month").set(mgr).send({
+      student_id: sid, year: yy, month: mm, paid: true });
+    assert.equal(fm.status, 200, "manager đánh dấu đóng học phí");
+    const pay = await request(app).post("/api/payments").set(mgr).send({
+      branch_id: 1, student_id: sid, category: "other", amount: 50000, paid_on: today, note: "Quản lý ghi thu" });
+    assert.equal(pay.status, 201);
+    const upd = await request(app).put("/api/payments/" + pay.body.id).set(mgr).send({ amount: 60000 });
+    assert.equal(upd.status, 200);
+    assert.equal(upd.body.amount, 60000);
+
+    // GHI ĐƯỢC: xóa học viên (chuyển HV cũ) như admin
+    const del = await request(app).delete("/api/students/" + sid).set(mgr).send({ reason: "Test quản lý xóa" });
+    assert.equal(del.status, 200);
+
+    // GHI BỊ CHẶN: mọi mục ngoài 3 mảng trên -> 403
+    const blocked = [
+      ["put", "/api/classes/" + cls.body.id, { name: "Đổi tên lớp" }],
+      ["delete", "/api/classes/" + cls.body.id, {}],
+      ["post", "/api/payroll/settle", { branch_id: 1, month: today.slice(0, 7) }],
+      ["post", "/api/rentals", { branch_id: 1 }],
+      ["post", "/api/private-sessions", { branch_id: 1 }],
+      ["post", "/api/performances", { branch_id: 1 }],
+      ["post", "/api/expenses", { branch_id: 1, category: "other", amount: 1000, paid_on: today }],
+      ["post", "/api/users", { username: "hack", password: "hack12345", role: "coach" }],
+      ["post", "/api/branches", { name: "Chi nhánh lậu" }],
+      ["post", "/api/packages", { name: "Gói lậu" }],
+      ["post", "/api/timesheets", { branch_id: 1 }],
+      ["post", "/api/attendance/sessions", { class_id: 2, session_date: today, records: [] }],
+      ["post", "/api/teaching-logs", { class_id: 2, log_date: today, content: "lậu" }],
+      ["put", "/api/shift-swaps/1/approve", {}],
+      ["put", "/api/profile/requests/1/approve", {}],
+    ];
+    for (const [method, url, body] of blocked) {
+      const r = await request(app)[method](url).set(mgr).send(body);
+      assert.equal(r.status, 403, `manager bị chặn ${method.toUpperCase()} ${url} (nhận ${r.status})`);
+    }
+    // Sao lưu toàn bộ dữ liệu vẫn chỉ admin
+    const bk = await request(app).get("/api/export/backup").set(mgr);
+    assert.equal(bk.status, 403);
+    // Nhưng xuất Excel tài chính thì xem được như admin
+    const fin = await request(app).get("/api/export/finance?branch_id=1").set(mgr);
+    assert.equal(fin.status, 200);
   });
 });

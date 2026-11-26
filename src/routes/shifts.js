@@ -23,7 +23,7 @@ router.get("/", async (req, res) => {
   const conds = [], vals = [];
   if (branch_id) { conds.push(`s.branch_id = $${vals.length + 1}`); vals.push(Number(branch_id)); }
   if (status) { conds.push(`s.status = $${vals.length + 1}`); vals.push(status); }
-  if (req.user.role !== "admin") { conds.push(`s.requester_id = $${vals.length + 1}`); vals.push(req.user.id); }
+  if (!["admin", "manager"].includes(req.user.role)) { conds.push(`s.requester_id = $${vals.length + 1}`); vals.push(req.user.id); }
   const where = conds.length ? "WHERE " + conds.join(" AND ") : "";
   const { rows } = await db.query(
     `SELECT s.id, s.branch_id, s.requester_id, s.class_id, s.work_date, s.swap_with_id,

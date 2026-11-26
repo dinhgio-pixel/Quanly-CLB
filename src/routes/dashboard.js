@@ -51,9 +51,9 @@ router.get("/", async (req, res) => {
       else if (fs === "overdue" || fs === "unpaid") overdue.push(s);
     }
 
-    // --- Doanh thu tháng này theo nhóm (chỉ admin được xem) ---
+    // --- Doanh thu tháng này theo nhóm (chỉ admin/quản lý được xem) ---
     let revenue = null;
-    if (req.user.role === "admin") {
+    if (req.user.role === "admin" || req.user.role === "manager") {
       vals = [firstOfMonth];
       where = "paid_on >= $1";
       if (branchId) { vals.push(branchId); where += ` AND branch_id = $${vals.length}`; }
@@ -95,7 +95,7 @@ router.get("/", async (req, res) => {
 
 // Tổng quan TẤT CẢ chi nhánh trong 1 tháng (chỉ admin): doanh thu tách giảng dạy/khác, chi, chênh lệch
 router.get("/branches", async (req, res) => {
-  if (req.user.role !== "admin") return res.status(403).json({ error: "Chỉ dành cho quản trị viên" });
+  if (!["admin", "manager"].includes(req.user.role)) return res.status(403).json({ error: "Chỉ dành cho quản trị viên" });
   const month = String(req.query.month || todayStr().slice(0, 7));
   const [y, mo] = month.split("-").map(Number);
   if (!y || !mo || mo < 1 || mo > 12) return res.status(400).json({ error: "Tháng không hợp lệ (YYYY-MM)" });

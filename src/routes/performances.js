@@ -3,12 +3,12 @@
 // và khoản chi 'performance' (chi phí nhân sự + chi phí khác) vào sổ tài chính.
 const express = require("express");
 const db = require("../db");
-const { requireAuth, requireRole } = require("../auth");
+const { requireAuth, requireRole, readOnlyForManager } = require("../auth");
 const { logAudit } = require("../lib/audit");
 const { dateStr } = require("../lib/slots");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth, requireRole("admin", "manager"), readOnlyForManager);
 
 function monthBounds(month) {
   const [y, mo] = String(month || "").split("-").map(Number);

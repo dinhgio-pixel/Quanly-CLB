@@ -6,11 +6,11 @@
 // Tỷ trọng lương = tổng lương / doanh thu khối giảng dạy (tuition + private) của chi nhánh. Ngưỡng cảnh báo 40%.
 const express = require("express");
 const db = require("../db");
-const { requireAuth, requireRole } = require("../auth");
+const { requireAuth, requireRole, readOnlyForManager } = require("../auth");
 const { logAudit } = require("../lib/audit");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth, requireRole("admin", "manager"), readOnlyForManager);
 
 const WARN_RATIO = 40; // %
 

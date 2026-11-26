@@ -22,6 +22,7 @@ function createApp() {
   });
 
   // API
+  app.use(require("./auth").managerWriteGuard); // chốt quyền ghi của tài khoản Quản Lý
   app.use("/api/auth", require("./routes/auth"));
   app.use("/api/users", require("./routes/users"));
   app.use("/api/branches", require("./routes/branches"));

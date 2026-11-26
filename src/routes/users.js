@@ -3,11 +3,11 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
-const { requireAuth, requireRole } = require("../auth");
+const { requireAuth, requireRole, readOnlyForManager } = require("../auth");
 const { logAudit } = require("../lib/audit");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth, requireRole("admin", "manager"), readOnlyForManager);
 
 router.get("/", async (req, res) => {
   const { rows } = await db.query(
@@ -35,7 +35,7 @@ router.post("/", async (req, res) => {
             pay_type, hourly_rate, fixed_salary, revenue_share_pct } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: "Thiếu tên đăng nhập/mật khẩu" });
     if (String(password).length < 8) return res.status(400).json({ error: "Mật khẩu phải có ít nhất 8 ký tự" });
-    if (!["admin", "coach", "student"].includes(role)) return res.status(400).json({ error: "Vai trò không hợp lệ" });
+    if (!["admin", "manager", "coach", "student"].includes(role)) return res.status(400).json({ error: "Vai trò không hợp lệ" });
     const sid = role === "student" ? Number(student_id) || null : null;
     if (role === "student") {
       if (!sid) return res.status(400).json({ error: "Tài khoản học viên phải gắn với 1 học viên" });
@@ -81,7 +81,7 @@ router.put("/:id", async (req, res) => {
       if (String(password).length < 8) return res.status(400).json({ error: "Mật khẩu phải có ít nhất 8 ký tự" });
       sets.push(`password_hash = $${sets.length + 1}`); vals.push(await bcrypt.hash(password, 10));
     }
-    if (role && ["admin", "coach", "student"].includes(role)) { sets.push(`role = $${sets.length + 1}`); vals.push(role); }
+    if (role && ["admin", "manager", "coach", "student"].includes(role)) { sets.push(`role = $${sets.length + 1}`); vals.push(role); }
     if (full_name !== undefined) { sets.push(`full_name = $${sets.length + 1}`); vals.push(String(full_name).trim()); }
     if (belt_level !== undefined) { sets.push(`belt_level = $${sets.length + 1}`); vals.push(String(belt_level).trim()); }
     if (phone !== undefined) { sets.push(`phone = $${sets.length + 1}`); vals.push(String(phone).trim()); }

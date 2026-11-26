@@ -14,7 +14,7 @@ const { getPool } = require("../src/db");
   // Mở rộng vai trò users thêm 'student' cho DB đã tạo từ trước
   // (pg-mem trong test không chạy được DO block nên làm bằng JS tại đây)
   await pool.query("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check");
-  await pool.query("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin','coach','student'))");
+  await pool.query("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin','manager','coach','student'))");
   console.log("[init] users role check OK");
 
   // KHÓA CỬA PHỤ SUPABASE (khắc phục cảnh báo rls_disabled_in_public / sensitive_columns_exposed):

@@ -3,11 +3,11 @@
 // Báo cáo tài chính = tổng thu (payments) - tổng chi (expenses) theo chi nhánh/tháng.
 const express = require("express");
 const db = require("../db");
-const { requireAuth, requireRole } = require("../auth");
+const { requireAuth, requireRole, readOnlyForManager } = require("../auth");
 const { logAudit } = require("../lib/audit");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth, requireRole("admin", "manager"), readOnlyForManager);
 
 const CATEGORIES = ["salary", "performance", "other"];
 

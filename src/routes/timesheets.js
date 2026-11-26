@@ -18,8 +18,8 @@ function monthRange(month) {
 }
 
 async function scopedUserId(req) {
-  // HLV chỉ được xem của chính mình
-  return req.user.role === "admin" ? null : req.user.id;
+  // HLV chỉ được xem của chính mình; admin/quản lý xem tất cả
+  return (req.user.role === "admin" || req.user.role === "manager") ? null : req.user.id;
 }
 
 // Danh sách buổi dạy

@@ -138,7 +138,7 @@ router.post("/delete-requests", async (req, res) => {
 });
 
 // Duyệt yêu cầu xóa (admin) -> HV chuyển sang "đã nghỉ", vào danh sách HV cũ
-router.put("/delete-requests/:id/approve", requireRole("admin"), async (req, res) => {
+router.put("/delete-requests/:id/approve", requireRole("admin", "manager"), async (req, res) => {
   const { rows } = await db.query("SELECT * FROM student_delete_requests WHERE id = $1", [req.params.id]);
   const d = rows[0];
   if (!d) return res.status(404).json({ error: "Không tìm thấy yêu cầu" });
@@ -152,7 +152,7 @@ router.put("/delete-requests/:id/approve", requireRole("admin"), async (req, res
 });
 
 // Từ chối yêu cầu xóa (admin)
-router.put("/delete-requests/:id/reject", requireRole("admin"), async (req, res) => {
+router.put("/delete-requests/:id/reject", requireRole("admin", "manager"), async (req, res) => {
   const { rows } = await db.query("SELECT id, status FROM student_delete_requests WHERE id = $1", [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: "Không tìm thấy yêu cầu" });
   if (rows[0].status !== "pending") return res.status(400).json({ error: "Yêu cầu đã được xử lý" });
@@ -296,7 +296,7 @@ router.post("/:id/transfer", async (req, res) => {
   res.json(rows[0]);
 });
 
-router.delete("/:id", requireRole("admin"), async (req, res) => {
+router.delete("/:id", requireRole("admin", "manager"), async (req, res) => {
   const id = Number(req.params.id);
   const { rows } = await db.query("SELECT id FROM students WHERE id = $1", [id]);
   if (!rows[0]) return res.status(404).json({ error: "Không tìm thấy học viên" });

@@ -135,7 +135,7 @@ router.get("/attendance", async (req, res) => {
 });
 
 // --- Chấm công HLV theo tháng (chỉ admin) ---
-router.get("/timesheets", requireRole("admin"), async (req, res) => {
+router.get("/timesheets", requireRole("admin", "manager"), async (req, res) => {
   const month = req.query.month || todayStr().slice(0, 7);
   const branchId = Number(req.query.branch_id) || null;
   const vals = [month + "-01", month + "-31"];
@@ -187,7 +187,7 @@ const EXP_LABEL_X = { salary: "Lương HLV", performance: "Chi phí biểu diễ
 const PAY_TYPE_LABEL_X = { hourly: "Theo giờ", fixed: "Cố định tháng", revenue_share: "% doanh thu giảng dạy" };
 const dFmt = (d) => String(d).slice(0, 10).split("-").reverse().join("/");
 
-router.get("/finance", requireRole("admin"), async (req, res) => {
+router.get("/finance", requireRole("admin", "manager"), async (req, res) => {
   const month = req.query.month || todayStr().slice(0, 7);
   const branchId = Number(req.query.branch_id);
   if (!branchId) return res.status(400).json({ error: "Thiếu chi nhánh" });

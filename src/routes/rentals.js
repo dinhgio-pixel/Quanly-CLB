@@ -3,12 +3,12 @@
 // lưu xong tự sinh khoản thu 'rental' liên kết qua payment_id.
 const express = require("express");
 const db = require("../db");
-const { requireAuth, requireRole } = require("../auth");
+const { requireAuth, requireRole, readOnlyForManager } = require("../auth");
 const { logAudit } = require("../lib/audit");
 const { toMin, overlaps, weekdayOf, parseSchedule, dateStr } = require("../lib/slots");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin"));
+router.use(requireAuth, requireRole("admin", "manager"), readOnlyForManager);
 
 // Tìm xung đột cho 1 khung giờ thuê. excludeId: bỏ qua chính booking đang sửa.
 async function findConflicts({ branch_id, rent_date, startMin, endMin, excludeId }) {

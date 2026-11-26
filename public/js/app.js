@@ -19,9 +19,11 @@ const fmtVND = (n) => (Number(n) || 0).toLocaleString("vi-VN") + "đ";
 const fmtDate = (d) => { if (!d) return "—"; const x = String(d).slice(0, 10).split("-"); return x.length === 3 ? `${x[2]}/${x[1]}/${x[0]}` : d; };
 const todayInput = () => new Date().toISOString().slice(0, 10);
 const isAdmin = () => S.user && S.user.role === "admin";
+const isManager = () => S.user && S.user.role === "manager";
+const isAdminLike = () => isAdmin() || isManager(); // xem như quản trị viên (Quản Lý chỉ khác ở quyền sửa)
 const isCoach = () => S.user && S.user.role === "coach";
 const isStudent = () => S.user && S.user.role === "student";
-const roleLabel = (r) => r === "admin" ? "Quản trị viên" : r === "student" ? "Học viên" : "Huấn luyện viên";
+const roleLabel = (r) => r === "admin" ? "Quản trị viên" : r === "manager" ? "Quản Lý" : r === "student" ? "Học viên" : "Huấn luyện viên";
 
 const FEE_LABEL = { paid: "Đã đóng", due_soon: "Sắp hết hạn", overdue: "Quá hạn", unpaid: "Chưa đóng", paused: "Tạm dừng", stopped: "Dừng học" };
 const ST_LABEL = { active: "Đang học", paused: "Tạm dừng", stopped: "Dừng học" };
@@ -136,7 +138,7 @@ const NAV = [
   ["#/fees", "💰", "Thu phí"],
   ["#/payroll", "💵", "Lương HLV", true],
   ["#/activities", "🏟️", "Hoạt động", true],
-  ["#/profile", "👤", "Hồ sơ", false, "coach"],
+  ["#/profile", "👤", "Hồ sơ", false, "coach,manager"],
   ["#/former-students", "🗂️", "Học viên cũ"],
   ["#/packages", "📦", "Gói học", true],
   ["#/branches", "🏢", "Chi nhánh", true],
@@ -148,7 +150,7 @@ function renderNav() {
   const nav = $("#sidenav");
   const items = isStudent()
     ? [["#/dashboard", "📊", "Tổng quan"], ["#/classes", "🏫", "Lớp học"], ["#/curriculum", "📚", "Chương trình học"]]
-    : NAV.filter((n) => (!n[3] || isAdmin()) && (!n[4] || S.user.role === n[4]));
+    : NAV.filter((n) => (!n[3] || isAdminLike()) && (!n[4] || n[4].split(",").includes(S.user.role)));
   nav.innerHTML = `<div class="nav-user">👤 ${esc(S.user.full_name || S.user.username)}<br><span class="muted">${roleLabel(S.user.role)}</span></div>` +
     items.map((n) =>
       `<a href="${n[0]}" data-nav="${n[0]}">${n[1]} ${n[2]}</a>`).join("");
@@ -192,7 +194,7 @@ async function refreshLookups() {
     api("GET", "/classes" + q).catch(() => []),
     api("GET", "/packages" + q).catch(() => []),
   ]);
-  if (isAdmin()) S.users = await api("GET", "/users").catch(() => []);
+  if (isAdminLike()) S.users = await api("GET", "/users").catch(() => []);
 }
 
 const className = (id) => (S.classes.find((c) => c.id === Number(id)) || {}).name || "—";
@@ -372,8 +374,8 @@ async function vDashboard() {
       ${d.todaySessions.map((s) => `<tr><td>${esc(s.class_name)}</td><td class="muted">${esc(s.schedule || "")}</td>
       <td><a href="#/classes/${s.class_id || ""}/attendance">${s.records} HV</a></td></tr>`).join("")}</table></div>`
       : `<p class="muted">Chưa tạo buổi điểm danh nào hôm nay.</p>`}</div>
-  ${isAdmin() ? `<div id="dashBranches"></div>` : ""}`;
-  if (isAdmin()) loadDashBranches();
+  ${isAdminLike() ? `<div id="dashBranches"></div>` : ""}`;
+  if (isAdminLike()) loadDashBranches();
   function feeList(list) {
     if (!list.length) return `<p class="muted">Không có.</p>`;
     return `<div class="tbl-wrap"><table>${list.map((s) =>
@@ -384,12 +386,12 @@ async function vDashboard() {
 
 /* ----- branches (admin) ----- */
 async function vBranches() {
-  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
-  V.innerHTML = pageHead("Chi nhánh", `<button class="btn" onclick="branchForm()">+ Thêm</button>`) +
+  if (!isAdminLike()) { location.hash = "#/dashboard"; return; }
+  V.innerHTML = pageHead("Chi nhánh", isAdmin() ? `<button class="btn" onclick="branchForm()">+ Thêm</button>` : "") +
     `<div class="card"><div class="tbl-wrap"><table><tr><th>Tên</th><th>Loại</th><th>Địa chỉ</th><th></th></tr>
     ${S.branches.map((b) => `<tr><td><b>${esc(b.name)}</b></td><td>${b.kind === "club" ? "CLB" : "Điểm dạy"}</td>
       <td class="muted">${esc(b.address)}</td>
-      <td><button class="btn small ghost" onclick="branchForm(${b.id})">Sửa</button></td></tr>`).join("")}</table></div></div>`;
+      <td>${isAdmin() ? `<button class="btn small ghost" onclick="branchForm(${b.id})">Sửa</button>` : ""}</td></tr>`).join("")}</table></div></div>`;
 }
 window.branchForm = async (id) => {
   const b = id ? S.branches.find((x) => x.id === id) : {};
@@ -427,7 +429,7 @@ async function vClasses() {
   const workCard = (c) => `<div class="card"><h3><a href="#/classes/${c.id}">${esc(c.name)}</a></h3>
       <div class="muted">${esc(c.schedule || "")}${c.room ? " · " + esc(c.room) : ""}</div>
       <div class="row spread" style="margin-top:.5rem"><span>${c.active_students} HV đang học</span>
-      ${isAdmin() ? `<b>${fmtVND(c.monthly_fee)}</b>` : ""}</div>
+      ${isAdminLike() ? `<b>${fmtVND(c.monthly_fee)}</b>` : ""}</div>
       ${c.coaches ? `<div class="muted">HLV: ${esc(c.coaches)}</div>` : ""}</div>`;
   const viewCard = (c) => `<div class="card"><h3>${esc(c.name)}</h3>
       <div class="muted">${esc(c.schedule || "—")}${c.room ? " · " + esc(c.room) : ""}</div>
@@ -439,7 +441,7 @@ async function vClasses() {
       ...extras.filter((c) => c.branch_id === b.id).map(viewCard),
     ].join("");
     return `<div class="row spread" style="margin:1.1rem 0 .2rem"><h3 style="margin:0">🏢 ${esc(b.name)}</h3>
-      ${isAdmin() ? `<button class="btn small" onclick="classForm(null,${b.id})">+ Thêm lớp</button>` : ""}</div>
+      ${isAdminLike() ? `<button class="btn small" onclick="classForm(null,${b.id})">+ Thêm lớp</button>` : ""}</div>
       ${b.address ? `<p class="muted" style="margin:.1rem 0 .4rem">${esc(b.address)}</p>` : ""}
       ${cards ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">${cards}</div>`
               : `<p class="muted">Chưa có lớp nào ở chi nhánh này.</p>`}`;
@@ -483,7 +485,7 @@ async function vClassDetail(id, tab) {
   if (isAdmin()) TABS.push(["coach", "👥 HLV"]);
   let body = `<div class="tabs">${TABS.map((t) => `<button class="${tab === t[0] ? "active" : ""}" onclick="location.hash='#/classes/${id}/${t[0]}'">${t[1]}</button>`).join("")}</div><div id="tabBody"><p class="muted">Đang tải...</p></div>`;
   V.innerHTML = pageHead(c.name, isAdmin() ? `<button class="btn ghost" onclick="classForm(${c.id})">Sửa lớp</button>` : "") +
-    `<p class="muted">${esc(c.schedule)}${c.room ? " · " + esc(c.room) : ""}${isAdmin() ? ` · ${fmtVND(c.monthly_fee)}/tháng` : ""}</p>` + body;
+    `<p class="muted">${esc(c.schedule)}${c.room ? " · " + esc(c.room) : ""}${isAdminLike() ? ` · ${fmtVND(c.monthly_fee)}/tháng` : ""}</p>` + body;
   const el = $("#tabBody");
   if (tab === "students") {
     const list = await api("GET", `/students?class_id=${id}&status=active`);
@@ -499,7 +501,7 @@ async function vClassDetail(id, tab) {
       <td><button class="btn small ghost" onclick="event.stopPropagation();transferStudent(${s.id})">🔀 Chuyển lớp</button></td></tr>`).join("")}</table></div>`;
   } else if (tab === "attendance") {
     el.innerHTML = `<div class="row"><input type="date" id="attDate" value="${todayInput()}" style="width:auto">
-      <button class="btn" onclick="takeAttendance(${id})">Điểm danh</button>
+      ${isManager() ? "" : `<button class="btn" onclick="takeAttendance(${id})">Điểm danh</button>`}
       <button class="btn ghost" onclick="attSummary(${id})">% Chuyên cần</button></div>
       <div class="row" style="margin-top:.5rem"><input type="month" id="attMonth" value="${todayInput().slice(0, 7)}" style="width:auto">
       <button class="btn ghost" onclick="exportAttendance(${id})">⬇ Xuất Excel điểm danh</button></div>
@@ -507,15 +509,15 @@ async function vClassDetail(id, tab) {
     const ss = await api("GET", `/attendance/sessions?class_id=${id}`);
     $("#attList").innerHTML = ss.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Có mặt</th><th></th></tr>
       ${ss.map((s) => `<tr><td><a href="javascript:void(0)" onclick="viewSession(${s.id})">${fmtDate(s.session_date)}</a></td><td>${s.present_count}/${s.total_count}</td>
-      <td><button class="btn small ghost" onclick="takeAttendance(${id},'${String(s.session_date).slice(0, 10)}')">Sửa</button></td></tr>`).join("")}</table></div>`
+      <td>${isManager() ? "" : `<button class="btn small ghost" onclick="takeAttendance(${id},'${String(s.session_date).slice(0, 10)}')">Sửa</button>`}</td></tr>`).join("")}</table></div>`
       : `<p class="muted">Chưa có buổi điểm danh nào.</p>`;
   } else if (tab === "logs") {
     const logs = await api("GET", `/teaching-logs?class_id=${id}`);
-    el.innerHTML = `<div class="row spread"><b>${logs.length} ghi chép</b><button class="btn small" onclick="logForm(${id})">+ Ghi nhật ký</button></div>` +
+    el.innerHTML = `<div class="row spread"><b>${logs.length} ghi chép</b>${isManager() ? "" : `<button class="btn small" onclick="logForm(${id})">+ Ghi nhật ký</button>`}</div>` +
       (logs.map((l) => `<div class="card"><div class="row spread"><b>${fmtDate(l.log_date)}</b>
         <span class="muted">${esc(l.author || "")}</span></div><p>${esc(l.content)}</p>
-        <div class="btnrow"><button class="btn small ghost" onclick="logForm(${id},${l.id})">Sửa</button>
-        <button class="btn small danger" onclick="logDel(${l.id},${id})">Xóa</button></div></div>`).join("") ||
+        ${isManager() ? "" : `<div class="btnrow"><button class="btn small ghost" onclick="logForm(${id},${l.id})">Sửa</button>
+        <button class="btn small danger" onclick="logDel(${l.id},${id})">Xóa</button></div>`}</div>`).join("") ||
         `<p class="muted">Chưa có nhật ký.</p>`);
   } else if (tab === "fees") {
     const ov = await api("GET", `/classes/${id}/fee-overview`);
@@ -525,11 +527,11 @@ async function vClassDetail(id, tab) {
       <div class="card"><div class="num" style="color:var(--bad)">${(sm.overdue || 0) + (sm.unpaid || 0)}</div><div class="lbl">Chưa/chậm đóng</div></div>
       <div class="card"><div class="num" style="color:var(--warn)">${sm.due_soon || 0}</div><div class="lbl">Sắp hết hạn</div></div>
       <div class="card"><div class="num" style="color:var(--muted)">${(sm.paused || 0) + (sm.stopped || 0)}</div><div class="lbl">Tạm dừng/Dừng</div></div></div>
-      <div class="tbl-wrap"><table><tr><th>Học viên</th><th>Gói</th><th>HP đến ngày</th><th>Trạng thái</th>${isAdmin() ? "<th></th>" : ""}</tr>
+      <div class="tbl-wrap"><table><tr><th>Học viên</th><th>Gói</th><th>HP đến ngày</th><th>Trạng thái</th>${isAdminLike() ? "<th></th>" : ""}</tr>
       ${ov.students.map((s) => `<tr><td><b>${esc(s.full_name)}</b></td>
-      <td class="muted">${esc(s.package_name || "—")}<br>${isAdmin() ? fmtVND(s.package_fee || 0) : (s.package_sessions ? s.package_sessions + " buổi/tuần" : "—")}</td>
+      <td class="muted">${esc(s.package_name || "—")}<br>${isAdminLike() ? fmtVND(s.package_fee || 0) : (s.package_sessions ? s.package_sessions + " buổi/tuần" : "—")}</td>
       <td>${fmtDate(s.paid_through)}</td><td>${feeBadge(s.fee_state)}</td>
-      ${isAdmin() ? `<td>${["paid"].includes(s.fee_state) ? "" : `<button class="btn small" onclick="payFor(${s.id},${id})">Thu phí</button>`}</td>` : ""}</tr>`).join("")}</table></div>`;
+      ${isAdminLike() ? `<td>${["paid"].includes(s.fee_state) ? "" : `<button class="btn small" onclick="payFor(${s.id},${id})">Thu phí</button>`}</td>` : ""}</tr>`).join("")}</table></div>`;
   } else if (tab === "coach" && isAdmin()) {
     try {
       const assigned = await api("GET", "/users");
@@ -568,7 +570,7 @@ async function vStudents() {
       <div id="sList" style="margin-top:.6rem"></div></div>`;
   $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") studentSearch(); });
   studentSearch();
-  if (isAdmin()) loadDelRequests();
+  if (isAdminLike()) loadDelRequests();
 }
 // Yêu cầu xóa HV đang chờ duyệt (admin)
 window.loadDelRequests = async () => {
@@ -622,7 +624,7 @@ window.studentForm = async (id, presetClass) => {
   const s = id ? await api("GET", "/students/" + id) : {};
   const clsOpts = S.classes.map((c) => `<option value="${c.id}" ${(s.class_id || presetClass) == c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("");
   const pkgOpts = `<option value="">—</option>` + S.packages.filter((p) => p.status === "active").map((p) =>
-    `<option value="${p.id}" ${s.package_id == p.id ? "selected" : ""}>${esc(p.name)}${isAdmin() ? ` (${fmtVND(p.monthly_fee)})` : (p.sessions_per_week ? ` (${p.sessions_per_week} buổi/tuần)` : "")}</option>`).join("");
+    `<option value="${p.id}" ${s.package_id == p.id ? "selected" : ""}>${esc(p.name)}${isAdminLike() ? ` (${fmtVND(p.monthly_fee)})` : (p.sessions_per_week ? ` (${p.sessions_per_week} buổi/tuần)` : "")}</option>`).join("");
   openModal(`<h3>${id ? "Sửa" : "Thêm"} học viên</h3><form id="f">
     <div class="grid" style="grid-template-columns:1fr 1fr;gap:.4rem .6rem">
     <div><label>Họ tên *</label><input name="full_name" value="${esc(s.full_name || "")}" required></div>
@@ -659,17 +661,17 @@ window.studentForm = async (id, presetClass) => {
 };
 window.studentDel = async (id) => {
   // HLV: gửi yêu cầu xóa kèm giải trình -> admin duyệt. Admin: xóa trực tiếp (chuyển vào HV cũ).
-  openModal(`<h3>${isAdmin() ? "Xóa học viên" : "Yêu cầu xóa học viên"}</h3><form id="f">
-    <label>Nguyên nhân ${isAdmin() ? "(lưu vào hồ sơ học viên cũ)" : "(gửi quản trị viên duyệt)"} *</label>
+  openModal(`<h3>${isAdminLike() ? "Xóa học viên" : "Yêu cầu xóa học viên"}</h3><form id="f">
+    <label>Nguyên nhân ${isAdminLike() ? "(lưu vào hồ sơ học viên cũ)" : "(gửi quản trị viên duyệt)"} *</label>
     <textarea name="reason" required placeholder="VD: Gia đình chuyển nhà, không sắp xếp được lịch học..."></textarea>
-    ${isAdmin() ? "" : `<p class="muted">Học viên chỉ bị xóa khỏi danh sách khi quản trị viên ấn xác nhận, sau đó chuyển vào danh sách học viên cũ.</p>`}
-    <div class="btnrow"><button class="btn danger">${isAdmin() ? "Xóa khỏi danh sách" : "Gửi yêu cầu"}</button>
+    ${isAdminLike() ? "" : `<p class="muted">Học viên chỉ bị xóa khỏi danh sách khi quản trị viên ấn xác nhận, sau đó chuyển vào danh sách học viên cũ.</p>`}
+    <div class="btnrow"><button class="btn danger">${isAdminLike() ? "Xóa khỏi danh sách" : "Gửi yêu cầu"}</button>
     <button type="button" class="btn ghost" onclick="closeModal()">Hủy</button></div></form>`);
   $("#f").onsubmit = async (e) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const reason = fd.get("reason");
     try {
-      if (isAdmin()) {
+      if (isAdminLike()) {
         await api("DELETE", "/students/" + id, { reason });
         closeModal(); toast("Đã chuyển học viên vào danh sách cũ");
         location.hash = "#/students"; route();
@@ -691,7 +693,7 @@ async function vStudentDetail(id, yr) {
     <div class="card"><h3>Thông tin</h3>
       <table>
       <tr><td class="muted">Lớp</td><td><b>${esc(s.class_name || "—")}</b></td></tr>
-      <tr><td class="muted">Gói</td><td>${esc(s.package_name || "—")}${isAdmin() ? (s.package_fee ? " (" + fmtVND(s.package_fee) + ")" : "") : (s.package_sessions ? " (" + s.package_sessions + " buổi/tuần)" : "")}</td></tr>
+      <tr><td class="muted">Gói</td><td>${esc(s.package_name || "—")}${isAdminLike() ? (s.package_fee ? " (" + fmtVND(s.package_fee) + ")" : "") : (s.package_sessions ? " (" + s.package_sessions + " buổi/tuần)" : "")}</td></tr>
       <tr><td class="muted">Cấp đai hiện tại</td><td><b>${beltIcon(s.belt_level)} ${esc(s.belt_level || "—")}</b></td></tr>
       <tr><td class="muted">Ngày sinh</td><td>${fmtDate(s.dob)}</td></tr>
       <tr><td class="muted">SĐT phụ huynh</td><td>${esc(s.phone || "—")}</td></tr>
@@ -705,19 +707,19 @@ async function vStudentDetail(id, yr) {
       <tr><td class="muted">Cân nặng</td><td>${s.weight_kg ? s.weight_kg + " kg" : "—"}</td></tr>
       </table>
       <p>${esc(s.health_note || "Chưa có lưu ý sức khỏe.")}</p>
-      ${isAdmin() ? `<div class="btnrow"><button class="btn small" onclick="payFor(${s.id})">Thu học phí</button></div>` : ""}</div>
+      ${isAdminLike() ? `<div class="btnrow"><button class="btn small" onclick="payFor(${s.id})">Thu học phí</button></div>` : ""}</div>
     </div>
     <div class="card"><h3>📅 Thu phí năm <input type="number" id="feeYear" value="${year}" min="2020" max="2100" style="width:5.5rem" onchange="vStudentDetail(${s.id}, this.value)">
-      <span class="muted" style="font-weight:normal">✓ = đã đóng${isAdmin() ? " · bấm vào ô để đánh dấu" : ""}</span></h3>
+      <span class="muted" style="font-weight:normal">✓ = đã đóng${isAdminLike() ? " · bấm vào ô để đánh dấu" : ""}</span></h3>
       <div class="tbl-wrap"><table><tr>${Array.from({ length: 12 }, (_, i) => `<th style="text-align:center">T${i + 1}</th>`).join("")}</tr>
       <tr>${yearFeeCells(s, year).map((c, i) => {
         const inner = c.paid ? `<b style="color:var(--ok)">✓</b>` : `<span class="muted">—</span>`;
-        return isAdmin()
+        return isAdminLike()
           ? `<td style="text-align:center;cursor:pointer" title="Bấm để ${c.paid ? "bỏ đánh dấu" : "đánh dấu đã đóng"}${c.title ? " — " + esc(c.title) : ""}" onclick="toggleFeeMonth(${s.id},'${year}',${i + 1},${!c.paid})">${inner}</td>`
           : `<td style="text-align:center" title="${esc(c.title || "")}">${inner}</td>`;
       }).join("")}</tr>
       </table></div></div>
-    ${isAdmin() ? `<div class="card"><h3>Lịch sử thu phí</h3>
+    ${isAdminLike() ? `<div class="card"><h3>Lịch sử thu phí</h3>
       ${s.payments.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Nhóm</th><th>Số tiền</th><th>Đến ngày</th><th>Ghi chú</th><th></th></tr>
       ${s.payments.map((p) => `<tr><td>${fmtDate(p.paid_on)}</td><td>${CAT_LABEL[p.category] || p.category}</td>
       <td><b>${fmtVND(p.amount)}</b></td><td>${fmtDate(p.paid_through)}</td><td class="muted">${esc(p.note || "")}</td>
@@ -808,13 +810,13 @@ function yearFeeCells(s, yr) {
 
 /* ----- packages (admin) ----- */
 async function vPackages() {
-  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
-  V.innerHTML = pageHead("Gói học", `<button class="btn" onclick="pkgForm()">+ Thêm gói</button>`) +
+  if (!isAdminLike()) { location.hash = "#/dashboard"; return; }
+  V.innerHTML = pageHead("Gói học", isAdmin() ? `<button class="btn" onclick="pkgForm()">+ Thêm gói</button>` : "") +
     `<div class="card"><div class="tbl-wrap"><table><tr><th>Tên gói</th><th>Số buổi/tuần</th><th>Hình thức</th><th>Học phí</th><th>HV</th><th>TT</th><th></th></tr>
     ${S.packages.map((p) => `<tr><td><b>${esc(p.name)}</b></td><td>${p.sessions_per_week || "—"}</td>
       <td>${p.training_format === "private" ? "Kèm 1:1" : "Nhóm"}</td><td><b>${fmtVND(p.monthly_fee)}</b></td>
       <td>${p.active_students}</td><td>${p.status === "active" ? `<span class="badge b-active">Mở</span>` : `<span class="badge b-inactive">Ngừng</span>`}</td>
-      <td><button class="btn small ghost" onclick="pkgForm(${p.id})">Sửa</button></td></tr>`).join("")}</table></div></div>`;
+      <td>${isAdmin() ? `<button class="btn small ghost" onclick="pkgForm(${p.id})">Sửa</button>` : ""}</td></tr>`).join("")}</table></div></div>`;
 }
 window.pkgForm = async (id) => {
   const p = id ? S.packages.find((x) => x.id === id) : {};
@@ -913,7 +915,7 @@ window.attSummary = async (cid) => {
 /* ----- teaching logs ----- */
 async function vTeachingLogs() {
   const m = todayInput().slice(0, 7);
-  V.innerHTML = pageHead("Nhật ký giảng dạy", `<button class="btn" onclick="logForm()">+ Ghi nhật ký</button>`) +
+  V.innerHTML = pageHead("Nhật ký giảng dạy", isManager() ? "" : `<button class="btn" onclick="logForm()">+ Ghi nhật ký</button>`) +
     `<div class="card"><div class="row"><select id="lClass" style="width:auto">
     ${S.classes.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
     <input type="month" id="lMonth" value="${m}" style="width:auto">
@@ -940,9 +942,9 @@ window.loadLogs = async () => {
       <td>${l ? esc(l.content) : `<span class="muted">—</span>`}</td>
       <td class="muted">${l && l.details ? esc(l.details) : "—"}</td>
       <td class="muted">${l && l.note ? esc(l.note) : "—"}</td>
-      <td>${l
+      <td>${isManager() ? "" : (l
         ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="logForm(${cid},${l.id})">Sửa</button><button class="btn small danger" onclick="logDel(${l.id})">Xóa</button></div>`
-        : `<button class="btn small" onclick="logForm(${cid},null,'${d}')">Ghi</button>`}</td></tr>`; }).join("")}
+        : `<button class="btn small" onclick="logForm(${cid},null,'${d}')">Ghi</button>`)}</td></tr>`; }).join("")}
     </table></div>` : `<p class="muted">Tháng này chưa có buổi học nào.</p>`;
 };
 window.logForm = async (presetClass, id, presetDate) => {
@@ -974,13 +976,13 @@ window.logDel = async (id) => {
 let TS_CACHE = [];
 async function vTimesheets() {
   const m = todayInput().slice(0, 7);
-  const coachOpts = isAdmin()
+  const coachOpts = isAdminLike()
     ? `<select id="tsCoach" style="width:auto"><option value="">Tất cả HLV</option>${
         S.users.filter((u) => u.role === "coach" && u.status === "active")
           .map((u) => `<option value="${u.id}">${esc(u.full_name || u.username)}</option>`).join("")}</select>`
     : "";
   V.innerHTML = pageHead("Chấm công HLV", (isAdmin() ? `<button class="btn" onclick="tsForm()">+ Chấm công</button>` : "") +
-    (isAdmin() ? `<button class="btn ghost" onclick="exportTimesheets()">⬇ Xuất Excel</button>` : "")) +
+    (isAdminLike() ? `<button class="btn ghost" onclick="exportTimesheets()">⬇ Xuất Excel</button>` : "")) +
     `<div class="card"><div class="row"><input id="tsMonth" type="month" value="${m}" style="width:auto">${coachOpts}
     <button class="btn" onclick="loadTimesheets()">Xem</button></div></div>
     <div id="tsSummary"></div>
@@ -989,7 +991,7 @@ async function vTimesheets() {
 }
 window.loadTimesheets = async () => {
   const month = $("#tsMonth").value || todayInput().slice(0, 7);
-  const uid = isAdmin() && $("#tsCoach") ? $("#tsCoach").value : "";
+  const uid = isAdminLike() && $("#tsCoach") ? $("#tsCoach").value : "";
   const q = `?branch_id=${S.branchId}&month=${month}${uid ? "&user_id=" + uid : ""}`;
   try {
     const [summary, list] = await Promise.all([
@@ -1040,8 +1042,8 @@ window.tsDel = async (id) => {
 
 /* ----- đổi ca dạy ----- */
 async function vShiftSwaps() {
-  V.innerHTML = pageHead("Đổi ca dạy", `<button class="btn" onclick="shiftForm()">+ Yêu cầu đổi ca</button>`) +
-    (isAdmin()
+  V.innerHTML = pageHead("Đổi ca dạy", isManager() ? "" : `<button class="btn" onclick="shiftForm()">+ Yêu cầu đổi ca</button>`) +
+    (isAdminLike()
       ? `<div class="card"><div class="row"><select id="swStatus" style="width:auto"><option value="">Tất cả trạng thái</option><option value="pending" selected>Chờ duyệt</option><option value="approved">Đã duyệt</option><option value="rejected">Từ chối</option></select><button class="btn" onclick="loadShifts()">Lọc</button></div></div>`
       : `<div class="card"><p class="muted">HLV nào dạy thay sẽ điểm danh bằng tài khoản của mình — buổi dạy tự ghi chấm công cho người đó.</p></div>`) +
     `<div class="card"><div id="swList"><p class="muted">Đang tải...</p></div></div>`;
@@ -1049,7 +1051,7 @@ async function vShiftSwaps() {
 }
 window.loadShifts = async () => {
   try {
-    const st = isAdmin() && $("#swStatus") ? $("#swStatus").value : "";
+    const st = isAdminLike() && $("#swStatus") ? $("#swStatus").value : "";
     const list = await api("GET", `/shift-swaps?branch_id=${S.branchId}${st ? "&status=" + st : ""}`);
     $("#swList").innerHTML = list.length ? `<div class="tbl-wrap"><table>
       <tr><th>Ngày</th><th>Lớp</th><th>Người xin</th><th>Đổi với</th><th>Lý do</th><th>Trạng thái</th><th></th></tr>` +
@@ -1060,7 +1062,7 @@ window.loadShifts = async () => {
         <td>${swapBadge(s.status)}</td><td>` +
         (isAdmin() && s.status === "pending"
           ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ok" onclick="shiftReview(${s.id},true)">Duyệt</button><button class="btn small danger" onclick="shiftReview(${s.id},false)">Từ chối</button></div>`
-          : (!isAdmin() && s.status === "pending" ? `<button class="btn small ghost" onclick="shiftCancel(${s.id})">Hủy</button>` : "")) +
+          : (s.status === "pending" && s.requester_id === S.user.id ? `<button class="btn small ghost" onclick="shiftCancel(${s.id})">Hủy</button>` : "")) +
         `</td></tr>`).join("") + `</table></div>`
       : `<p class="muted">Chưa có yêu cầu đổi ca.</p>`;
   } catch (err) {
@@ -1155,7 +1157,7 @@ window.dirStudents = async (cid, btnId) => {
 
 /* ----- hồ sơ HLV (sửa thông tin -> gửi admin duyệt) ----- */
 async function vProfile() {
-  if (!isCoach()) { location.hash = "#/dashboard"; return; }
+  if (!isCoach() && !isManager()) { location.hash = "#/dashboard"; return; }
   V.innerHTML = `<p class="muted">Đang tải...</p>`;
   const me = await api("GET", "/profile/me");
   const pend = me.pending_request;
@@ -1168,7 +1170,7 @@ async function vProfile() {
     <tr><td class="muted">SĐT</td><td>${esc(me.phone || "—")}</td></tr>
     <tr><td class="muted">Vai trò</td><td>${roleLabel(me.role)}</td></tr>
     </table>
-    <div class="btnrow"><button class="btn" onclick="profileForm()">✏️ Sửa thông tin</button>
+    <div class="btnrow">${isManager() ? "" : `<button class="btn" onclick="profileForm()">✏️ Sửa thông tin</button>`}
     <button class="btn ghost" onclick="changePasswordForm()">🔑 Đổi mật khẩu</button></div></div>` +
     (pend ? `<div class="card"><h3>⏳ Đang chờ duyệt</h3>
     <p class="muted">Yêu cầu sửa hồ sơ bạn gửi lúc ${fmtDate((pend.created_at || "").slice(0, 10))} đang chờ quản trị viên duyệt.</p></div>` : "");
@@ -1211,7 +1213,7 @@ const EXP_LABEL = { salary: "Lương HLV", performance: "Chi phí biểu diễn"
 const PAY_TYPE_LABEL = { hourly: "Theo giờ", fixed: "Cố định tháng", revenue_share: "% doanh thu giảng dạy" };
 let payrollMonth = null;
 async function vPayroll() {
-  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
+  if (!isAdminLike()) { location.hash = "#/dashboard"; return; }
   const m = payrollMonth || todayInput().slice(0, 7);
   payrollMonth = m;
   const bName = (S.branches.find((b) => b.id === S.branchId) || {}).name || "";
@@ -1237,7 +1239,7 @@ async function vPayroll() {
    </div>
    ${t.over_warn ? `<div class="card" style="border-left:4px solid var(--bad)"><b>⚠️ Tỷ trọng lương đang vượt ${t.warn_ratio}% doanh thu giảng dạy.</b></div>` : ""}
    <div class="card"><div class="row spread"><h3 style="margin:0">Bảng lương tháng ${m.slice(5)}/${m.slice(0, 4)}</h3>
-     <button class="btn" onclick="settlePayroll('${m}')" ${allSettled ? "disabled" : ""}>✅ Chốt lương & ghi sổ chi</button></div>
+     ${isAdmin() ? `<button class="btn" onclick="settlePayroll('${m}')" ${allSettled ? "disabled" : ""}>✅ Chốt lương & ghi sổ chi</button>` : ""}</div>
    ${pr.rows.length ? `<div class="tbl-wrap"><table><tr><th>HLV</th><th>Kiểu trả</th><th style="text-align:right">Giờ dạy</th>
      <th style="text-align:right">Thu dạy 1:1</th><th style="text-align:right">Phân bổ học phí lớp</th>
      <th style="text-align:right">Lương</th><th>Trạng thái</th></tr>
@@ -1251,12 +1253,12 @@ async function vPayroll() {
    </table></div>` : `<p class="muted">Chưa có HLV nào hoạt động ở chi nhánh này trong tháng.</p>`}
    <p class="muted">Kiểu trả lương + đơn giá đặt ở mục Tài khoản → sửa HLV. Giờ dạy lấy từ Chấm công (vào mục Chấm công để sửa từng buổi). Phân bổ học phí lớp: doanh thu học phí của lớp chia theo tỷ lệ giờ dạy của các HLV trong lớp đó.</p></div>
    <div class="card"><div class="row spread"><h3 style="margin:0">Sổ chi tháng này</h3>
-     <button class="btn small" onclick="expenseForm()">+ Ghi khoản chi</button></div>
+     ${isAdmin() ? `<button class="btn small" onclick="expenseForm()">+ Ghi khoản chi</button>` : ""}</div>
    ${exps.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Nhóm</th><th>Nội dung</th><th style="text-align:right">Số tiền</th><th></th></tr>
      ${exps.map((e) => `<tr><td>${fmtDate(e.paid_on)}</td><td class="muted">${EXP_LABEL[e.category] || e.category}</td>
      <td>${esc(e.note || "")}${e.coach_name ? ` — ${esc(e.coach_name)}` : ""}</td>
      <td style="text-align:right"><b>${fmtVND(e.amount)}</b></td>
-     <td><button class="btn small danger" onclick="expenseDel(${e.id})">Xóa</button></td></tr>`).join("")}</table></div>`
+     <td>${isAdmin() ? `<button class="btn small danger" onclick="expenseDel(${e.id})">Xóa</button>` : ""}</td></tr>`).join("")}</table></div>`
      : `<p class="muted">Chưa có khoản chi nào trong tháng.</p>`}</div>`;
 }
 window.settlePayroll = async (m) => {
@@ -1294,7 +1296,7 @@ let actTab = "rent", actDate = null, actMonth = null, actCoaches = null;
 let ACT_RENTALS = [], ACT_PRIVATES = [];
 const fmtMin = (mins) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 async function vActivities() {
-  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
+  if (!isAdminLike()) { location.hash = "#/dashboard"; return; }
   if (!actCoaches) {
     const users = await api("GET", "/users").catch(() => []);
     actCoaches = users.filter((u) => u.role === "coach" && u.status === "active");
@@ -1322,7 +1324,7 @@ async function actRentView() {
   <div class="card"><div class="row"><label style="margin:0">Ngày xem lịch</label>
     <input type="date" id="actDateInp" value="${actDate}" style="width:auto">
     <button class="btn" onclick="actDate=document.getElementById('actDateInp').value;actRentView()">Xem</button>
-    <button class="btn" onclick="rentalForm()" style="margin-left:auto">+ Book lịch thuê</button></div>
+    ${isAdmin() ? `<button class="btn" onclick="rentalForm()" style="margin-left:auto">+ Book lịch thuê</button>` : ""}</div>
     <h3 style="margin:.8rem 0 .3rem">Khung giờ đã bận ngày ${fmtDate(actDate)}</h3>
     ${busy.length ? busy.map((x) => `<div class="att-row"><div class="nm"><b>${esc(x.t)}</b> — ${esc(x.label)}</div><span class="muted">${x.kind === "class" ? "Giờ học cố định" : "Đã cho thuê"}</span></div>`).join("") : `<p class="muted">Chưa có lớp học hay lịch thuê nào — sân trống cả ngày.</p>`}
   </div>
@@ -1331,8 +1333,8 @@ async function actRentView() {
     ${ACT_RENTALS.map((r) => `<tr><td><b>${esc(r.start_time)}–${esc(r.end_time)}</b></td><td>${esc(r.renter_name || "—")}${r.renter_phone ? `<br><span class="muted">${esc(r.renter_phone)}</span>` : ""}</td>
     <td class="muted">${esc(r.coach_name || "—")}</td>
     <td style="text-align:right">${fmtVND(r.price_per_hour)}</td><td style="text-align:right"><b>${fmtVND(r.total_amount)}</b></td>
-    <td><div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="rentalForm(${r.id})">Sửa</button>
-    <button class="btn small danger" onclick="rentalDel(${r.id})">Xóa</button></div></td></tr>`).join("")}</table></div>`
+    <td>${isAdmin() ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="rentalForm(${r.id})">Sửa</button>
+    <button class="btn small danger" onclick="rentalDel(${r.id})">Xóa</button></div>` : ""}</td></tr>`).join("")}</table></div>`
     : `<p class="muted">Chưa có lịch thuê nào trong ngày này.</p>`}
   <p class="muted">Khi lưu, hệ thống tự ghi khoản thu "Cho thuê" vào sổ và tự báo nếu trùng giờ học của lớp hoặc trùng lịch thuê khác.</p></div>`;
 }
@@ -1379,7 +1381,7 @@ async function actPrivateView() {
   <div class="card"><div class="row"><label style="margin:0">Tháng</label>
     <input type="month" id="actMonthInp" value="${actMonth}" style="width:auto">
     <button class="btn" onclick="actMonth=document.getElementById('actMonthInp').value;actPrivateView()">Xem</button>
-    <button class="btn" onclick="privateForm()" style="margin-left:auto">+ Thêm buổi 1:1</button></div>
+    ${isAdmin() ? `<button class="btn" onclick="privateForm()" style="margin-left:auto">+ Thêm buổi 1:1</button>` : ""}</div>
     <p style="margin:.6rem 0 0">Tổng học phí 1:1 tháng này: <b>${fmtVND(total)}</b> · ${list.filter((s) => s.status !== "cancelled").length} buổi</p></div>
   <div class="card"><h3>Buổi dạy 1:1 trong tháng</h3>
   ${list.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Giờ</th><th>Học viên</th><th>HLV</th><th style="text-align:right">Học phí</th><th style="text-align:right">Giờ lương</th><th></th></tr>
@@ -1388,8 +1390,8 @@ async function actPrivateView() {
     <td class="muted">${esc(s.coach_name || "—")}</td>
     <td style="text-align:right"><b>${fmtVND(s.fee)}</b></td>
     <td style="text-align:right">${s.pay_hours != null ? s.pay_hours + "h" : "—"}</td>
-    <td><div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="privateForm(${s.id})">Sửa</button>
-    <button class="btn small danger" onclick="privateDel(${s.id})">Xóa</button></div></td></tr>`).join("")}</table></div>`
+    <td>${isAdmin() ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="privateForm(${s.id})">Sửa</button>
+    <button class="btn small danger" onclick="privateDel(${s.id})">Xóa</button></div>` : ""}</td></tr>`).join("")}</table></div>`
     : `<p class="muted">Chưa có buổi 1:1 nào trong tháng này.</p>`}
   <p class="muted">Lưu buổi học sẽ tự ghi khoản thu "Dạy 1:1" cho HLV đó; nếu điền "Giờ tính lương" (theo thỏa thuận) thì hệ thống tự cộng giờ chấm công cho HLV. Trùng lịch của HLV sẽ bị báo ngay.</p></div>`;
 }
@@ -1440,7 +1442,7 @@ async function actPerfView() {
   <div class="card"><div class="row"><label style="margin:0">Tháng</label>
     <input type="month" id="actMonthInp" value="${actMonth}" style="width:auto">
     <button class="btn" onclick="actMonth=document.getElementById('actMonthInp').value;actPerfView()">Xem</button>
-    <button class="btn" onclick="perfForm()" style="margin-left:auto">+ Thêm sự kiện biểu diễn</button></div>
+    ${isAdmin() ? `<button class="btn" onclick="perfForm()" style="margin-left:auto">+ Thêm sự kiện biểu diễn</button>` : ""}</div>
     <p style="margin:.6rem 0 0">Tổng thu biểu diễn tháng này: <b>${fmtVND(sumRev)}</b> · Lãi sau chi phí: <b style="color:${sumProfit >= 0 ? "var(--ok)" : "var(--bad)"}">${fmtVND(sumProfit)}</b> · ${live.length} sự kiện</p></div>
   <div class="card"><h3>Sự kiện biểu diễn trong tháng</h3>
   ${list.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Sự kiện</th><th>Nhân sự</th><th style="text-align:right">Thu</th><th style="text-align:right">Chi nhân sự</th><th style="text-align:right">Chi khác</th><th style="text-align:right">Lãi</th><th></th></tr>
@@ -1451,8 +1453,8 @@ async function actPerfView() {
     <td style="text-align:right">${fmtVND(p.personnel_cost)}</td>
     <td style="text-align:right">${fmtVND(p.other_cost)}</td>
     <td style="text-align:right"><b style="color:${p.profit >= 0 ? "var(--ok)" : "var(--bad)"}">${fmtVND(p.profit)}</b></td>
-    <td><div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="perfForm(${p.id})">Sửa</button>
-    <button class="btn small danger" onclick="perfDel(${p.id})">Xóa</button></div></td></tr>`).join("")}</table></div>`
+    <td>${isAdmin() ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="perfForm(${p.id})">Sửa</button>
+    <button class="btn small danger" onclick="perfDel(${p.id})">Xóa</button></div>` : ""}</td></tr>`).join("")}</table></div>`
     : `<p class="muted">Chưa có sự kiện biểu diễn nào trong tháng này.</p>`}
   <p class="muted">Lưu sự kiện sẽ tự ghi khoản thu "Biểu diễn" và khoản chi (nhân sự + chi khác) vào sổ tài chính của chi nhánh.</p></div>`;
 }
@@ -1503,9 +1505,9 @@ const AUDIT_LABEL = {
   "performance.create": "Tạo sự kiện biểu diễn", "performance.delete": "Xóa sự kiện biểu diễn",
 };
 async function vAudit() {
-  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
+  if (!isAdminLike()) { location.hash = "#/dashboard"; return; }
   V.innerHTML = pageHead("Nhật ký hoạt động",
-    `<button class="btn" onclick="downloadBackup()">⬇ Sao lưu toàn bộ dữ liệu</button>`) +
+    isAdmin() ? `<button class="btn" onclick="downloadBackup()">⬇ Sao lưu toàn bộ dữ liệu</button>` : "") +
     `<div class="card"><div class="row"><label style="margin:0">Xem nhóm</label>
      <select id="auditFilter" style="width:auto" onchange="loadAudit()">
        <option value="">Tất cả</option><option value="login">Đăng nhập</option>
@@ -1559,11 +1561,11 @@ async function vStudentClasses() {
 
 /* ----- fees ----- */
 async function vFees() {
-  V.innerHTML = pageHead("Thu phí", isAdmin() ? `<button class="btn" onclick="payFor()">+ Ghi nhận thu</button>` : "") + `<div id="feeBody"><p class="muted">Đang tải...</p></div>`;
+  V.innerHTML = pageHead("Thu phí", isAdminLike() ? `<button class="btn" onclick="payFor()">+ Ghi nhận thu</button>` : "") + `<div id="feeBody"><p class="muted">Đang tải...</p></div>`;
   const m = todayInput().slice(0, 7);
-  // Tổng quan doanh thu chỉ dành cho admin (HLV không xem được)
+  // Tổng quan doanh thu chỉ dành cho admin/quản lý (HLV không xem được)
   let revHtml = "";
-  if (isAdmin()) {
+  if (isAdminLike()) {
     const sum = await api("GET", `/payments/revenue/summary?branch_id=${S.branchId}&from=${m}-01&to=${m}-31`);
     const exp = await api("GET", `/expenses/summary?branch_id=${S.branchId}&month=${m}`).catch(() => ({ grandTotal: 0 }));
     const bc = sum.byCategory;
@@ -1584,9 +1586,9 @@ async function vFees() {
     <button class="btn small" onclick="location.hash='#/classes/${c.id}/fees'">Xem thu phí</button></div>`).join("")}</div>
   <div class="card"><h3>Khoản thu gần đây</h3><div id="payList"></div></div>`;
   const pays = await api("GET", `/payments?branch_id=${S.branchId}`);
-  $("#payList").innerHTML = pays.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Học viên / Nội dung</th><th>Nhóm</th>${isAdmin() ? `<th style="text-align:right">Số tiền</th>` : ""}</tr>
+  $("#payList").innerHTML = pays.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Học viên / Nội dung</th><th>Nhóm</th>${isAdminLike() ? `<th style="text-align:right">Số tiền</th>` : ""}</tr>
     ${pays.slice(0, 30).map((p) => `<tr><td>${fmtDate(p.paid_on)}</td><td>${esc(p.student_name || p.note || "—")}</td>
-    <td class="muted">${CAT_LABEL[p.category] || p.category}</td>${isAdmin() ? `<td style="text-align:right"><b>${fmtVND(p.amount)}</b></td>` : ""}</tr>`).join("")}</table></div>`
+    <td class="muted">${CAT_LABEL[p.category] || p.category}</td>${isAdminLike() ? `<td style="text-align:right"><b>${fmtVND(p.amount)}</b></td>` : ""}</tr>`).join("")}</table></div>`
     : `<p class="muted">Chưa có khoản thu nào.</p>`;
 }
 window.payFor = async (studentId, classId) => {
@@ -1621,7 +1623,7 @@ window.payFor = async (studentId, classId) => {
 
 /* ----- users (admin) ----- */
 async function vUsers() {
-  if (!isAdmin()) { location.hash = "#/dashboard"; return; }
+  if (!isAdminLike()) { location.hash = "#/dashboard"; return; }
   const users = await api("GET", "/users");
   const reqs = await api("GET", "/profile/requests").catch(() => []);
   const FIELD_LABEL = { full_name: "Họ tên", belt_level: "Cấp đai", phone: "SĐT" };
@@ -1630,14 +1632,14 @@ async function vUsers() {
     ${Object.keys(r.changes || {}).map((k) => `<span class="muted">${FIELD_LABEL[k] || k}:</span> ${esc(r["current_" + (k === "full_name" ? "name" : k === "belt_level" ? "belt" : k)] || "—")} → <b>${esc(r.changes[k] || "—")}</b>`).join("<br>")}</div>
     <div class="btnrow" style="margin:0"><button class="btn small ok" onclick="profileReqReview(${r.id},true)">Duyệt</button>
     <button class="btn small danger" onclick="profileReqReview(${r.id},false)">Từ chối</button></div></div>`).join("")}</div>` : "";
-  V.innerHTML = pageHead("Tài khoản", `<button class="btn" onclick="userForm()">+ Thêm</button>`) + reqCard +
+  V.innerHTML = pageHead("Tài khoản", isAdmin() ? `<button class="btn" onclick="userForm()">+ Thêm</button>` : "") + reqCard +
     `<div class="card"><div class="tbl-wrap"><table><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Cấp đai</th><th>Vai trò</th><th>Lớp phụ trách</th><th>TT</th><th></th></tr>
     ${users.map((u) => `<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.full_name || "—")}${u.role === "student" && u.student_name ? `<br><span class="muted">HV: ${esc(u.student_name)}</span>` : ""}</td>
       <td>${u.role === "coach" ? `${beltIcon(u.belt_level)} ${esc(u.belt_level || "—")}` : `<span class="muted">—</span>`}</td>
       <td>${roleLabel(u.role)}</td>
       <td class="muted">${classIdsOf(u).map((cid) => esc(className(cid))).join(", ") || "—"}</td>
       <td>${u.status === "active" ? `<span class="badge b-active">Mở</span>` : `<span class="badge b-inactive">Khóa</span>`}</td>
-      <td><button class="btn small ghost" onclick="userForm(${u.id})">Sửa</button></td></tr>`).join("")}</table></div>
+      <td>${isAdmin() ? `<button class="btn small ghost" onclick="userForm(${u.id})">Sửa</button>` : ""}</td></tr>`).join("")}</table></div>
       <p class="muted">Gán lớp cho HLV: vào Lớp học → mở lớp → tab HLV.</p></div>`;
 }
 window.profileReqReview = async (id, approve) => {
@@ -1688,8 +1690,9 @@ window.userForm = async (id) => {
     <label>Vai trò</label><select name="role" id="uRole" onchange="document.getElementById('uStudentWrap').style.display=this.value==='student'?'':'none';document.getElementById('uPayWrap').style.display=this.value==='coach'?'':'none'">
       <option value="coach" ${u.role === "coach" ? "selected" : ""}>Huấn luyện viên</option>
       <option value="admin" ${u.role === "admin" ? "selected" : ""}>Quản trị viên</option>
+      <option value="manager" ${u.role === "manager" ? "selected" : ""}>Quản Lý</option>
       <option value="student" ${u.role === "student" ? "selected" : ""}>Học viên</option></select>
-    <div id="uPayWrap" style="display:${u.role === "student" || u.role === "admin" ? "none" : ""}">
+    <div id="uPayWrap" style="display:${u.role === "student" || u.role === "admin" || u.role === "manager" ? "none" : ""}">
       <label>Kiểu trả lương (HLV)</label><select name="pay_type" id="uPayType" onchange="payTypeToggle()">
         <option value="hourly" ${u.pay_type !== "fixed" && u.pay_type !== "revenue_share" ? "selected" : ""}>Theo giờ dạy</option>
         <option value="fixed" ${u.pay_type === "fixed" ? "selected" : ""}>Cố định theo tháng</option>
