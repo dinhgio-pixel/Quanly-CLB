@@ -8,7 +8,7 @@ const { logAudit } = require("../lib/audit");
 const { toMin, overlaps, weekdayOf, parseSchedule, dateStr } = require("../lib/slots");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin", "manager"), readOnlyForManager);
+router.use(requireAuth, requireRole("admin", "manager"));
 
 // Tìm xung đột cho 1 khung giờ thuê. excludeId: bỏ qua chính booking đang sửa.
 async function findConflicts({ branch_id, rent_date, startMin, endMin, excludeId }) {

@@ -501,7 +501,7 @@ async function vClassDetail(id, tab) {
       <td><button class="btn small ghost" onclick="event.stopPropagation();transferStudent(${s.id})">🔀 Chuyển lớp</button></td></tr>`).join("")}</table></div>`;
   } else if (tab === "attendance") {
     el.innerHTML = `<div class="row"><input type="date" id="attDate" value="${todayInput()}" style="width:auto">
-      ${isManager() ? "" : `<button class="btn" onclick="takeAttendance(${id})">Điểm danh</button>`}
+      <button class="btn" onclick="takeAttendance(${id})">Điểm danh</button>
       <button class="btn ghost" onclick="attSummary(${id})">% Chuyên cần</button></div>
       <div class="row" style="margin-top:.5rem"><input type="month" id="attMonth" value="${todayInput().slice(0, 7)}" style="width:auto">
       <button class="btn ghost" onclick="exportAttendance(${id})">⬇ Xuất Excel điểm danh</button></div>
@@ -509,7 +509,7 @@ async function vClassDetail(id, tab) {
     const ss = await api("GET", `/attendance/sessions?class_id=${id}`);
     $("#attList").innerHTML = ss.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Có mặt</th><th></th></tr>
       ${ss.map((s) => `<tr><td><a href="javascript:void(0)" onclick="viewSession(${s.id})">${fmtDate(s.session_date)}</a></td><td>${s.present_count}/${s.total_count}</td>
-      <td>${isManager() ? "" : `<button class="btn small ghost" onclick="takeAttendance(${id},'${String(s.session_date).slice(0, 10)}')">Sửa</button>`}</td></tr>`).join("")}</table></div>`
+      <td><button class="btn small ghost" onclick="takeAttendance(${id},'${String(s.session_date).slice(0, 10)}')">Sửa</button></td></tr>`).join("")}</table></div>`
       : `<p class="muted">Chưa có buổi điểm danh nào.</p>`;
   } else if (tab === "logs") {
     const logs = await api("GET", `/teaching-logs?class_id=${id}`);
@@ -1324,7 +1324,7 @@ async function actRentView() {
   <div class="card"><div class="row"><label style="margin:0">Ngày xem lịch</label>
     <input type="date" id="actDateInp" value="${actDate}" style="width:auto">
     <button class="btn" onclick="actDate=document.getElementById('actDateInp').value;actRentView()">Xem</button>
-    ${isAdmin() ? `<button class="btn" onclick="rentalForm()" style="margin-left:auto">+ Book lịch thuê</button>` : ""}</div>
+    ${isAdminLike() ? `<button class="btn" onclick="rentalForm()" style="margin-left:auto">+ Book lịch thuê</button>` : ""}</div>
     <h3 style="margin:.8rem 0 .3rem">Khung giờ đã bận ngày ${fmtDate(actDate)}</h3>
     ${busy.length ? busy.map((x) => `<div class="att-row"><div class="nm"><b>${esc(x.t)}</b> — ${esc(x.label)}</div><span class="muted">${x.kind === "class" ? "Giờ học cố định" : "Đã cho thuê"}</span></div>`).join("") : `<p class="muted">Chưa có lớp học hay lịch thuê nào — sân trống cả ngày.</p>`}
   </div>
@@ -1333,7 +1333,7 @@ async function actRentView() {
     ${ACT_RENTALS.map((r) => `<tr><td><b>${esc(r.start_time)}–${esc(r.end_time)}</b></td><td>${esc(r.renter_name || "—")}${r.renter_phone ? `<br><span class="muted">${esc(r.renter_phone)}</span>` : ""}</td>
     <td class="muted">${esc(r.coach_name || "—")}</td>
     <td style="text-align:right">${fmtVND(r.price_per_hour)}</td><td style="text-align:right"><b>${fmtVND(r.total_amount)}</b></td>
-    <td>${isAdmin() ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="rentalForm(${r.id})">Sửa</button>
+    <td>${isAdminLike() ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="rentalForm(${r.id})">Sửa</button>
     <button class="btn small danger" onclick="rentalDel(${r.id})">Xóa</button></div>` : ""}</td></tr>`).join("")}</table></div>`
     : `<p class="muted">Chưa có lịch thuê nào trong ngày này.</p>`}
   <p class="muted">Khi lưu, hệ thống tự ghi khoản thu "Cho thuê" vào sổ và tự báo nếu trùng giờ học của lớp hoặc trùng lịch thuê khác.</p></div>`;
@@ -1381,7 +1381,7 @@ async function actPrivateView() {
   <div class="card"><div class="row"><label style="margin:0">Tháng</label>
     <input type="month" id="actMonthInp" value="${actMonth}" style="width:auto">
     <button class="btn" onclick="actMonth=document.getElementById('actMonthInp').value;actPrivateView()">Xem</button>
-    ${isAdmin() ? `<button class="btn" onclick="privateForm()" style="margin-left:auto">+ Thêm buổi 1:1</button>` : ""}</div>
+    ${isAdminLike() ? `<button class="btn" onclick="privateForm()" style="margin-left:auto">+ Thêm buổi 1:1</button>` : ""}</div>
     <p style="margin:.6rem 0 0">Tổng học phí 1:1 tháng này: <b>${fmtVND(total)}</b> · ${list.filter((s) => s.status !== "cancelled").length} buổi</p></div>
   <div class="card"><h3>Buổi dạy 1:1 trong tháng</h3>
   ${list.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Giờ</th><th>Học viên</th><th>HLV</th><th style="text-align:right">Học phí</th><th style="text-align:right">Giờ lương</th><th></th></tr>
@@ -1390,7 +1390,7 @@ async function actPrivateView() {
     <td class="muted">${esc(s.coach_name || "—")}</td>
     <td style="text-align:right"><b>${fmtVND(s.fee)}</b></td>
     <td style="text-align:right">${s.pay_hours != null ? s.pay_hours + "h" : "—"}</td>
-    <td>${isAdmin() ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="privateForm(${s.id})">Sửa</button>
+    <td>${isAdminLike() ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="privateForm(${s.id})">Sửa</button>
     <button class="btn small danger" onclick="privateDel(${s.id})">Xóa</button></div>` : ""}</td></tr>`).join("")}</table></div>`
     : `<p class="muted">Chưa có buổi 1:1 nào trong tháng này.</p>`}
   <p class="muted">Lưu buổi học sẽ tự ghi khoản thu "Dạy 1:1" cho HLV đó; nếu điền "Giờ tính lương" (theo thỏa thuận) thì hệ thống tự cộng giờ chấm công cho HLV. Trùng lịch của HLV sẽ bị báo ngay.</p></div>`;
@@ -1442,7 +1442,7 @@ async function actPerfView() {
   <div class="card"><div class="row"><label style="margin:0">Tháng</label>
     <input type="month" id="actMonthInp" value="${actMonth}" style="width:auto">
     <button class="btn" onclick="actMonth=document.getElementById('actMonthInp').value;actPerfView()">Xem</button>
-    ${isAdmin() ? `<button class="btn" onclick="perfForm()" style="margin-left:auto">+ Thêm sự kiện biểu diễn</button>` : ""}</div>
+    ${isAdminLike() ? `<button class="btn" onclick="perfForm()" style="margin-left:auto">+ Thêm sự kiện biểu diễn</button>` : ""}</div>
     <p style="margin:.6rem 0 0">Tổng thu biểu diễn tháng này: <b>${fmtVND(sumRev)}</b> · Lãi sau chi phí: <b style="color:${sumProfit >= 0 ? "var(--ok)" : "var(--bad)"}">${fmtVND(sumProfit)}</b> · ${live.length} sự kiện</p></div>
   <div class="card"><h3>Sự kiện biểu diễn trong tháng</h3>
   ${list.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Sự kiện</th><th>Nhân sự</th><th style="text-align:right">Thu</th><th style="text-align:right">Chi nhân sự</th><th style="text-align:right">Chi khác</th><th style="text-align:right">Lãi</th><th></th></tr>
@@ -1453,7 +1453,7 @@ async function actPerfView() {
     <td style="text-align:right">${fmtVND(p.personnel_cost)}</td>
     <td style="text-align:right">${fmtVND(p.other_cost)}</td>
     <td style="text-align:right"><b style="color:${p.profit >= 0 ? "var(--ok)" : "var(--bad)"}">${fmtVND(p.profit)}</b></td>
-    <td>${isAdmin() ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="perfForm(${p.id})">Sửa</button>
+    <td>${isAdminLike() ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="perfForm(${p.id})">Sửa</button>
     <button class="btn small danger" onclick="perfDel(${p.id})">Xóa</button></div>` : ""}</td></tr>`).join("")}</table></div>`
     : `<p class="muted">Chưa có sự kiện biểu diễn nào trong tháng này.</p>`}
   <p class="muted">Lưu sự kiện sẽ tự ghi khoản thu "Biểu diễn" và khoản chi (nhân sự + chi khác) vào sổ tài chính của chi nhánh.</p></div>`;

@@ -73,12 +73,17 @@ function readOnlyForManager(req, res, next) {
 }
 
 // Chốt chặn ghi toàn cục cho manager: ngoài các khu vực được phép ghi
-// (thêm lớp học, học viên, thu phí, tự đổi mật khẩu) thì mọi POST/PUT/DELETE đều bị chặn,
-// kể cả ở các route vốn dựa vào quyền theo lớp (điểm danh, nhật ký dạy, đổi ca...).
+// (thêm lớp học, học viên, thu phí, lịch thuê sân/1:1/biểu diễn, điểm danh, tự đổi mật khẩu)
+// thì mọi POST/PUT/DELETE đều bị chặn, kể cả ở các route vốn dựa vào quyền theo lớp
+// (nhật ký dạy, đổi ca, chấm công...).
 const MANAGER_WRITE_WHITELIST = [
   (method, p) => method === "POST" && (p === "/api/classes" || p === "/api/classes/"),
   (method, p) => p.startsWith("/api/students"),
   (method, p) => p.startsWith("/api/payments"),
+  (method, p) => p.startsWith("/api/rentals"),
+  (method, p) => p.startsWith("/api/private-sessions"),
+  (method, p) => p.startsWith("/api/performances"),
+  (method, p) => p.startsWith("/api/attendance"),
   (method, p) => method === "POST" && p === "/api/profile/change-password",
 ];
 function managerWriteGuard(req, res, next) {

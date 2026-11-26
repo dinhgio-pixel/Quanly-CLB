@@ -8,7 +8,7 @@ const { logAudit } = require("../lib/audit");
 const { toMin, overlaps, weekdayOf, parseSchedule, dateStr } = require("../lib/slots");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin", "manager"), readOnlyForManager);
+router.use(requireAuth, requireRole("admin", "manager"));
 
 async function findCoachConflicts({ coach_id, session_date, startMin, endMin, excludeId }) {
   const conflicts = [];

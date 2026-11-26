@@ -8,7 +8,7 @@ const { logAudit } = require("../lib/audit");
 const { dateStr } = require("../lib/slots");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin", "manager"), readOnlyForManager);
+router.use(requireAuth, requireRole("admin", "manager"));
 
 function monthBounds(month) {
   const [y, mo] = String(month || "").split("-").map(Number);

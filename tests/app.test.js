@@ -1095,20 +1095,41 @@ describe("Quản lý CLB Vovinam (production)", () => {
     const del = await request(app).delete("/api/students/" + sid).set(mgr).send({ reason: "Test quản lý xóa" });
     assert.equal(del.status, 200);
 
-    // GHI BỊ CHẶN: mọi mục ngoài 3 mảng trên -> 403
+    // GHI ĐƯỢC (bổ sung 26/11): lịch thuê sân, buổi 1:1, biểu diễn, điểm danh
+    const rent = await request(app).post("/api/rentals").set(mgr).send({
+      branch_id: 1, renter_name: "Khách thuê QL", rent_date: today,
+      start_time: "06:00", end_time: "07:00", price_per_hour: 100000 });
+    assert.equal(rent.status, 201, "manager book lịch thuê sân");
+    const rentUpd = await request(app).put("/api/rentals/" + rent.body.id).set(mgr).send({ note: "QL sửa" });
+    assert.equal(rentUpd.status, 200);
+    const users = await request(app).get("/api/users").set(mgr);
+    const coach = users.body.find((u) => u.role === "coach" && u.status === "active");
+    assert.ok(coach, "có HLV để test buổi 1:1");
+    const priv = await request(app).post("/api/private-sessions").set(mgr).send({
+      branch_id: 1, coach_id: coach.id, student_name: "HV 1:1 của QL", session_date: today,
+      start_time: "06:00", end_time: "07:00", fee: 200000 });
+    assert.equal(priv.status, 201, "manager thêm buổi 1:1");
+    const perf = await request(app).post("/api/performances").set(mgr).send({
+      branch_id: 1, event_name: "Diễn test QL", event_date: today,
+      revenue_fee: 1000000, personnel_cost: 200000, other_cost: 50000 });
+    assert.equal(perf.status, 201, "manager thêm sự kiện biểu diễn");
+    const studs = await request(app).get("/api/students?branch_id=1&status=active").set(mgr);
+    const kid = studs.body.find((s) => s.class_id === 2);
+    assert.ok(kid, "có học viên lớp Kid 1 để điểm danh");
+    const att = await request(app).post("/api/attendance/sessions").set(mgr).send({
+      class_id: 2, session_date: today, records: [{ student_id: kid.id, status: "present" }] });
+    assert.equal(att.status, 200, "manager điểm danh được");
+
+    // GHI BỊ CHẶN: mọi mục ngoài các mảng được phép -> 403
     const blocked = [
       ["put", "/api/classes/" + cls.body.id, { name: "Đổi tên lớp" }],
       ["delete", "/api/classes/" + cls.body.id, {}],
       ["post", "/api/payroll/settle", { branch_id: 1, month: today.slice(0, 7) }],
-      ["post", "/api/rentals", { branch_id: 1 }],
-      ["post", "/api/private-sessions", { branch_id: 1 }],
-      ["post", "/api/performances", { branch_id: 1 }],
       ["post", "/api/expenses", { branch_id: 1, category: "other", amount: 1000, paid_on: today }],
       ["post", "/api/users", { username: "hack", password: "hack12345", role: "coach" }],
       ["post", "/api/branches", { name: "Chi nhánh lậu" }],
       ["post", "/api/packages", { name: "Gói lậu" }],
       ["post", "/api/timesheets", { branch_id: 1 }],
-      ["post", "/api/attendance/sessions", { class_id: 2, session_date: today, records: [] }],
       ["post", "/api/teaching-logs", { class_id: 2, log_date: today, content: "lậu" }],
       ["put", "/api/shift-swaps/1/approve", {}],
       ["put", "/api/profile/requests/1/approve", {}],
