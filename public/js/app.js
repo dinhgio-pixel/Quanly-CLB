@@ -21,6 +21,7 @@ const todayInput = () => new Date().toISOString().slice(0, 10);
 const isAdmin = () => S.user && S.user.role === "admin";
 const isManager = () => S.user && S.user.role === "manager";
 const isAdminLike = () => isAdmin() || isManager(); // xem như quản trị viên (Quản Lý chỉ khác ở quyền sửa)
+const isTeachRole = (u) => u && (u.role === "coach" || u.role === "manager"); // HLV hoặc Quản Lý đều có thể được phân lớp đứng lớp
 const isCoach = () => S.user && S.user.role === "coach";
 const isStudent = () => S.user && S.user.role === "student";
 const roleLabel = (r) => r === "admin" ? "Quản trị viên" : r === "manager" ? "Quản Lý" : r === "student" ? "Học viên" : "Huấn luyện viên";
@@ -513,11 +514,11 @@ async function vClassDetail(id, tab) {
       : `<p class="muted">Chưa có buổi điểm danh nào.</p>`;
   } else if (tab === "logs") {
     const logs = await api("GET", `/teaching-logs?class_id=${id}`);
-    el.innerHTML = `<div class="row spread"><b>${logs.length} ghi chép</b>${isManager() ? "" : `<button class="btn small" onclick="logForm(${id})">+ Ghi nhật ký</button>`}</div>` +
+    el.innerHTML = `<div class="row spread"><b>${logs.length} ghi chép</b><button class="btn small" onclick="logForm(${id})">+ Ghi nhật ký</button></div>` +
       (logs.map((l) => `<div class="card"><div class="row spread"><b>${fmtDate(l.log_date)}</b>
         <span class="muted">${esc(l.author || "")}</span></div><p>${esc(l.content)}</p>
-        ${isManager() ? "" : `<div class="btnrow"><button class="btn small ghost" onclick="logForm(${id},${l.id})">Sửa</button>
-        <button class="btn small danger" onclick="logDel(${l.id},${id})">Xóa</button></div>`}</div>`).join("") ||
+        <div class="btnrow"><button class="btn small ghost" onclick="logForm(${id},${l.id})">Sửa</button>
+        <button class="btn small danger" onclick="logDel(${l.id},${id})">Xóa</button></div></div>`).join("") ||
         `<p class="muted">Chưa có nhật ký.</p>`);
   } else if (tab === "fees") {
     const ov = await api("GET", `/classes/${id}/fee-overview`);
@@ -535,10 +536,10 @@ async function vClassDetail(id, tab) {
   } else if (tab === "coach" && isAdmin()) {
     try {
       const assigned = await api("GET", "/users");
-      const coaches = assigned.filter((u) => u.role === "coach");
+      const coaches = assigned.filter((u) => isTeachRole(u));
       el.innerHTML = `<p class="muted">Chọn HLV phụ trách lớp này (có thể gán nhiều HLV cùng 1 lớp; HLV chỉ thấy và quản lý lớp được gán):</p>` +
         coaches.map((u) => { const has = classIdsOf(u).includes(Number(id)); return `
-        <div class="att-row"><div class="nm"><b>${esc(u.full_name || u.username)}</b> <span class="muted">@${esc(u.username)}</span></div>
+        <div class="att-row"><div class="nm"><b>${esc(u.full_name || u.username)}</b> <span class="muted">@${esc(u.username)}</span>${u.role === "manager" ? ` <span class="muted">(Quản Lý)</span>` : ""}</div>
         <button class="btn small ${has ? "danger" : "ok"}" onclick="toggleCoach(${u.id},${id},${has})">${has ? "Gỡ" : "Gán"}</button></div>`; }).join("") +
         (coaches.length ? "" : `<p class="muted">Chưa có tài khoản HLV nào. Tạo ở mục Tài khoản.</p>`);
     } catch (err) {
@@ -915,7 +916,7 @@ window.attSummary = async (cid) => {
 /* ----- teaching logs ----- */
 async function vTeachingLogs() {
   const m = todayInput().slice(0, 7);
-  V.innerHTML = pageHead("Nhật ký giảng dạy", isManager() ? "" : `<button class="btn" onclick="logForm()">+ Ghi nhật ký</button>`) +
+  V.innerHTML = pageHead("Nhật ký giảng dạy", `<button class="btn" onclick="logForm()">+ Ghi nhật ký</button>`) +
     `<div class="card"><div class="row"><select id="lClass" style="width:auto">
     ${S.classes.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
     <input type="month" id="lMonth" value="${m}" style="width:auto">
@@ -942,7 +943,7 @@ window.loadLogs = async () => {
       <td>${l ? esc(l.content) : `<span class="muted">—</span>`}</td>
       <td class="muted">${l && l.details ? esc(l.details) : "—"}</td>
       <td class="muted">${l && l.note ? esc(l.note) : "—"}</td>
-      <td>${isManager() ? "" : (l
+      <td>${(l
         ? `<div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="logForm(${cid},${l.id})">Sửa</button><button class="btn small danger" onclick="logDel(${l.id})">Xóa</button></div>`
         : `<button class="btn small" onclick="logForm(${cid},null,'${d}')">Ghi</button>`)}</td></tr>`; }).join("")}
     </table></div>` : `<p class="muted">Tháng này chưa có buổi học nào.</p>`;
@@ -978,7 +979,7 @@ async function vTimesheets() {
   const m = todayInput().slice(0, 7);
   const coachOpts = isAdminLike()
     ? `<select id="tsCoach" style="width:auto"><option value="">Tất cả HLV</option>${
-        S.users.filter((u) => u.role === "coach" && u.status === "active")
+        S.users.filter((u) => isTeachRole(u) && u.status === "active")
           .map((u) => `<option value="${u.id}">${esc(u.full_name || u.username)}</option>`).join("")}</select>`
     : "";
   V.innerHTML = pageHead("Chấm công HLV", (isAdmin() ? `<button class="btn" onclick="tsForm()">+ Chấm công</button>` : "") +
@@ -1015,7 +1016,7 @@ window.loadTimesheets = async () => {
 };
 window.tsForm = async (id) => {
   const t = id ? (TS_CACHE.find((x) => x.id === id) || {}) : {};
-  const coaches = S.users.filter((u) => u.role === "coach" && u.status === "active");
+  const coaches = S.users.filter((u) => isTeachRole(u) && u.status === "active");
   openModal(`<h3>${id ? "Sửa" : "Thêm"} chấm công HLV</h3><form id="f">
     <label>Huấn luyện viên</label><select name="user_id">${
       coaches.map((u) => `<option value="${u.id}" ${t.user_id == u.id ? "selected" : ""}>${esc(u.full_name || u.username)}</option>`).join("")}</select>
@@ -1042,7 +1043,7 @@ window.tsDel = async (id) => {
 
 /* ----- đổi ca dạy ----- */
 async function vShiftSwaps() {
-  V.innerHTML = pageHead("Đổi ca dạy", isManager() ? "" : `<button class="btn" onclick="shiftForm()">+ Yêu cầu đổi ca</button>`) +
+  V.innerHTML = pageHead("Đổi ca dạy", `<button class="btn" onclick="shiftForm()">+ Yêu cầu đổi ca</button>`) +
     (isAdminLike()
       ? `<div class="card"><div class="row"><select id="swStatus" style="width:auto"><option value="">Tất cả trạng thái</option><option value="pending" selected>Chờ duyệt</option><option value="approved">Đã duyệt</option><option value="rejected">Từ chối</option></select><button class="btn" onclick="loadShifts()">Lọc</button></div></div>`
       : `<div class="card"><p class="muted">HLV nào dạy thay sẽ điểm danh bằng tài khoản của mình — buổi dạy tự ghi chấm công cho người đó.</p></div>`) +
@@ -1170,7 +1171,7 @@ async function vProfile() {
     <tr><td class="muted">SĐT</td><td>${esc(me.phone || "—")}</td></tr>
     <tr><td class="muted">Vai trò</td><td>${roleLabel(me.role)}</td></tr>
     </table>
-    <div class="btnrow">${isManager() ? "" : `<button class="btn" onclick="profileForm()">✏️ Sửa thông tin</button>`}
+    <div class="btnrow"><button class="btn" onclick="profileForm()">✏️ Sửa thông tin</button>
     <button class="btn ghost" onclick="changePasswordForm()">🔑 Đổi mật khẩu</button></div></div>` +
     (pend ? `<div class="card"><h3>⏳ Đang chờ duyệt</h3>
     <p class="muted">Yêu cầu sửa hồ sơ bạn gửi lúc ${fmtDate((pend.created_at || "").slice(0, 10))} đang chờ quản trị viên duyệt.</p></div>` : "");
@@ -1299,7 +1300,7 @@ async function vActivities() {
   if (!isAdminLike()) { location.hash = "#/dashboard"; return; }
   if (!actCoaches) {
     const users = await api("GET", "/users").catch(() => []);
-    actCoaches = users.filter((u) => u.role === "coach" && u.status === "active");
+    actCoaches = users.filter((u) => isTeachRole(u) && u.status === "active");
   }
   actDate = actDate || todayInput();
   actMonth = actMonth || todayInput().slice(0, 7);
@@ -1596,7 +1597,7 @@ window.payFor = async (studentId, classId) => {
   if (studentId) s = await api("GET", "/students/" + studentId).catch(() => null);
   const pkgFee = s && s.package_fee ? s.package_fee : "";
   const allUsers = await api("GET", "/users").catch(() => []);
-  const coaches = allUsers.filter((u) => u.role === "coach" && u.status === "active");
+  const coaches = allUsers.filter((u) => isTeachRole(u) && u.status === "active");
   openModal(`<h3>Ghi nhận thu phí${s ? " — " + esc(s.full_name) : ""}</h3><form id="f">
     <label>Nhóm khoản thu</label><select name="category">
     ${Object.keys(CAT_LABEL).map((k) => `<option value="${k}">${CAT_LABEL[k]}</option>`).join("")}</select>
@@ -1635,7 +1636,7 @@ async function vUsers() {
   V.innerHTML = pageHead("Tài khoản", isAdmin() ? `<button class="btn" onclick="userForm()">+ Thêm</button>` : "") + reqCard +
     `<div class="card"><div class="tbl-wrap"><table><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Cấp đai</th><th>Vai trò</th><th>Lớp phụ trách</th><th>TT</th><th></th></tr>
     ${users.map((u) => `<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.full_name || "—")}${u.role === "student" && u.student_name ? `<br><span class="muted">HV: ${esc(u.student_name)}</span>` : ""}</td>
-      <td>${u.role === "coach" ? `${beltIcon(u.belt_level)} ${esc(u.belt_level || "—")}` : `<span class="muted">—</span>`}</td>
+      <td>${isTeachRole(u) ? `${beltIcon(u.belt_level)} ${esc(u.belt_level || "—")}` : `<span class="muted">—</span>`}</td>
       <td>${roleLabel(u.role)}</td>
       <td class="muted">${classIdsOf(u).map((cid) => esc(className(cid))).join(", ") || "—"}</td>
       <td>${u.status === "active" ? `<span class="badge b-active">Mở</span>` : `<span class="badge b-inactive">Khóa</span>`}</td>
@@ -1687,12 +1688,12 @@ window.userForm = async (id) => {
     <div><label>Cấp đai (HLV)</label><input name="belt_level" value="${esc(u.belt_level || "")}" placeholder="VD: Hoàng đai"></div>
     <div><label>SĐT</label><input name="phone" value="${esc(u.phone || "")}"></div></div>
     <label>Mật khẩu ${id ? "(để trống nếu không đổi)" : ""} — tối thiểu 8 ký tự</label><input name="password" type="password" ${id ? "" : "required"}>
-    <label>Vai trò</label><select name="role" id="uRole" onchange="document.getElementById('uStudentWrap').style.display=this.value==='student'?'':'none';document.getElementById('uPayWrap').style.display=this.value==='coach'?'':'none'">
+    <label>Vai trò</label><select name="role" id="uRole" onchange="document.getElementById('uStudentWrap').style.display=this.value==='student'?'':'none';document.getElementById('uPayWrap').style.display=(this.value==='coach'||this.value==='manager')?'':'none'">
       <option value="coach" ${u.role === "coach" ? "selected" : ""}>Huấn luyện viên</option>
       <option value="admin" ${u.role === "admin" ? "selected" : ""}>Quản trị viên</option>
       <option value="manager" ${u.role === "manager" ? "selected" : ""}>Quản Lý</option>
       <option value="student" ${u.role === "student" ? "selected" : ""}>Học viên</option></select>
-    <div id="uPayWrap" style="display:${u.role === "student" || u.role === "admin" || u.role === "manager" ? "none" : ""}">
+    <div id="uPayWrap" style="display:${u.role === "student" || u.role === "admin" ? "none" : ""}">
       <label>Kiểu trả lương (HLV)</label><select name="pay_type" id="uPayType" onchange="payTypeToggle()">
         <option value="hourly" ${u.pay_type !== "fixed" && u.pay_type !== "revenue_share" ? "selected" : ""}>Theo giờ dạy</option>
         <option value="fixed" ${u.pay_type === "fixed" ? "selected" : ""}>Cố định theo tháng</option>
@@ -1705,7 +1706,7 @@ window.userForm = async (id) => {
       <label>Gắn với học viên</label><select name="student_id">
       ${students.map((s) => `<option value="${s.id}" ${u.student_id == s.id ? "selected" : ""}>${esc(s.full_name)}${s.class_name ? " — " + esc(s.class_name) : ""}</option>`).join("")}
       </select></div>
-    <label>Chi nhánh & lớp phụ trách (chỉ áp dụng cho HLV — tick chi nhánh để chọn nhanh tất cả lớp trong chi nhánh)</label>
+    <label>Chi nhánh & lớp phụ trách (áp dụng cho HLV và Quản Lý — tick chi nhánh để chọn nhanh tất cả lớp trong chi nhánh)</label>
     <div>${branchBlocks || `<p class="muted">Chưa có chi nhánh nào.</p>`}</div>
     <label>Trạng thái</label><select name="status"><option value="active" ${u.status !== "inactive" ? "selected" : ""}>Đang mở</option>
       <option value="inactive" ${u.status === "inactive" ? "selected" : ""}>Khóa</option></select>
@@ -1716,7 +1717,7 @@ window.userForm = async (id) => {
     e.preventDefault(); const fd = new FormData(e.target);
     const body = { full_name: fd.get("full_name"), role: fd.get("role"), status: fd.get("status"),
       belt_level: fd.get("belt_level"), phone: fd.get("phone") };
-    if (fd.get("role") === "coach") {
+    if (fd.get("role") === "coach" || fd.get("role") === "manager") {
       body.pay_type = fd.get("pay_type");
       body.hourly_rate = fd.get("hourly_rate");
       body.fixed_salary = fd.get("fixed_salary");
@@ -1730,7 +1731,7 @@ window.userForm = async (id) => {
       if (id) await api("PUT", "/users/" + id, body);
       else { const created = await api("POST", "/users", body); uid = created.id; }
       // Lưu chi nhánh + lớp phụ trách cho HLV
-      if (uid && body.role === "coach") {
+      if (uid && (body.role === "coach" || body.role === "manager")) {
         const checked = $$("#f input[name=class_id]:checked").map((x) => Number(x.value));
         const bChecked = $$("#f input[name=branch_id]:checked").map((x) => Number(x.value));
         // Chi nhánh có lớp được tick cũng tính là chi nhánh HLV trực thuộc

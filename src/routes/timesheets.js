@@ -55,7 +55,7 @@ router.get("/summary", async (req, res) => {
   const vals = [from, to];
   let joinExtra = "";
   if (branch_id) { vals.push(Number(branch_id)); joinExtra = `AND t.branch_id = $${vals.length}`; }
-  const conds = ["u.role = 'coach'", "u.status = 'active'"];
+  const conds = ["u.role IN ('coach','manager')", "u.status = 'active'"];
   if (own) { vals.push(own); conds.push(`u.id = $${vals.length}`); }
   const { rows } = await db.query(
     `SELECT u.id, u.username, u.full_name,
@@ -82,7 +82,7 @@ router.post("/", requireRole("admin"), async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(work_date)) return res.status(400).json({ error: "Ngày không hợp lệ" });
   if (!(h > 0) || h > 24) return res.status(400).json({ error: "Số giờ phải từ 0.5 đến 24" });
   // HLV phải là tài khoản coach còn hoạt động
-  const cu = await db.query("SELECT id FROM users WHERE id = $1 AND role = 'coach' AND status = 'active'", [uid]);
+  const cu = await db.query("SELECT id FROM users WHERE id = $1 AND role IN ('coach','manager') AND status = 'active'", [uid]);
   if (!cu.rows[0]) return res.status(400).json({ error: "HLV không hợp lệ" });
   // Lớp (nếu có) phải thuộc chi nhánh
   const cid = Number(class_id) || null;

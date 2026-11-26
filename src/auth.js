@@ -84,7 +84,12 @@ const MANAGER_WRITE_WHITELIST = [
   (method, p) => p.startsWith("/api/private-sessions"),
   (method, p) => p.startsWith("/api/performances"),
   (method, p) => p.startsWith("/api/attendance"),
+  (method, p) => p.startsWith("/api/teaching-logs"),
+  // Đổi ca: manager tạo yêu cầu + hủy yêu cầu của mình như HLV, nhưng KHÔNG được duyệt
+  (method, p) => method === "POST" && (p === "/api/shift-swaps" || p === "/api/shift-swaps/"),
+  (method, p) => method === "DELETE" && /^\/api\/shift-swaps\/\d+$/.test(p),
   (method, p) => method === "POST" && p === "/api/profile/change-password",
+  (method, p) => method === "POST" && p === "/api/profile/request",
 ];
 function managerWriteGuard(req, res, next) {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();

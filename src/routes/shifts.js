@@ -12,7 +12,7 @@ router.use(requireAuth);
 // Danh sách HLV đang hoạt động (để chọn người đổi ca cùng)
 router.get("/coaches", async (req, res) => {
   const { rows } = await db.query(
-    "SELECT id, username, full_name FROM users WHERE role = 'coach' AND status = 'active' ORDER BY full_name, username"
+    "SELECT id, username, full_name FROM users WHERE role IN ('coach','manager') AND status = 'active' ORDER BY full_name, username"
   );
   res.json(rows);
 });
@@ -58,7 +58,7 @@ router.post("/", async (req, res) => {
   const swid = Number(swap_with_id) || null;
   if (swid) {
     if (swid === req.user.id) return res.status(400).json({ error: "Không thể đổi ca với chính mình" });
-    const w = await db.query("SELECT id FROM users WHERE id = $1 AND role = 'coach' AND status = 'active'", [swid]);
+    const w = await db.query("SELECT id FROM users WHERE id = $1 AND role IN ('coach','manager') AND status = 'active'", [swid]);
     if (!w.rows[0]) return res.status(400).json({ error: "HLV đổi cùng không hợp lệ" });
   }
   const { rows } = await db.query(

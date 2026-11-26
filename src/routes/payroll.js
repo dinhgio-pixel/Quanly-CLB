@@ -34,7 +34,7 @@ async function computePayroll(branchId, month) {
 
   const coaches = (await db.query(
     `SELECT id, username, full_name, pay_type, hourly_rate, fixed_salary, revenue_share_pct
-     FROM users WHERE role = 'coach' AND status = 'active' ORDER BY id`
+     FROM users WHERE role IN ('coach','manager') AND status = 'active' ORDER BY id`
   )).rows;
   const coachById = new Map(coaches.map((c) => [c.id, c]));
 

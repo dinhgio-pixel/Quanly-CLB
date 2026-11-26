@@ -54,9 +54,9 @@ router.post("/sessions", async (req, res) => {
       });
     }
   }
-  // Đồng bộ chấm công HLV: HLV bấm lưu điểm danh = xác nhận buổi dạy.
-  // Mỗi HLV/lớp/ngày chỉ ghi 1 lần (tránh trùng khi lưu lại).
-  if (req.user.role === "coach") {
+  // Đồng bộ chấm công HLV: HLV/Quản Lý bấm lưu điểm danh = xác nhận buổi dạy.
+  // Mỗi người/lớp/ngày chỉ ghi 1 lần (tránh trùng khi lưu lại).
+  if (req.user.role === "coach" || req.user.role === "manager") {
     const cls = await db.query("SELECT schedule, branch_id FROM classes WHERE id = $1", [classId]);
     if (cls.rows[0]) {
       const exists = await db.query(

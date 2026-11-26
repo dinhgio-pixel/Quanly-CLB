@@ -1130,7 +1130,6 @@ describe("Quản lý CLB Vovinam (production)", () => {
       ["post", "/api/branches", { name: "Chi nhánh lậu" }],
       ["post", "/api/packages", { name: "Gói lậu" }],
       ["post", "/api/timesheets", { branch_id: 1 }],
-      ["post", "/api/teaching-logs", { class_id: 2, log_date: today, content: "lậu" }],
       ["put", "/api/shift-swaps/1/approve", {}],
       ["put", "/api/profile/requests/1/approve", {}],
     ];
@@ -1138,6 +1137,30 @@ describe("Quản lý CLB Vovinam (production)", () => {
       const r = await request(app)[method](url).set(mgr).send(body);
       assert.equal(r.status, 403, `manager bị chặn ${method.toUpperCase()} ${url} (nhận ${r.status})`);
     }
+    // KIÊM HLV: admin phân lớp cho Quản Lý -> dùng được các chức năng của HLV
+    const mgrId = created.body.id;
+    const assign = await request(app).put(`/api/users/${mgrId}/classes`).set(auth)
+      .send({ classIds: [2], branchIds: [1] });
+    assert.equal(assign.status, 200);
+    const usersAfter = await request(app).get("/api/users").set(auth);
+    const mgrRow = usersAfter.body.find((u) => u.id === mgrId);
+    assert.ok(mgrRow.class_ids.includes(2), "Quản Lý được phân lớp Kid 1");
+    const log = await request(app).post("/api/teaching-logs").set(mgr).send({
+      class_id: 2, log_date: today, content: "Nhật ký của Quản Lý kiêm HLV" });
+    assert.equal(log.status, 201, "Quản Lý ghi nhật ký dạy");
+    const coachList = await request(app).get("/api/shift-swaps/coaches").set(mgr);
+    assert.ok(coachList.body.some((u) => u.id === mgrId), "Quản Lý có trong danh sách đổi ca");
+    const swap = await request(app).post("/api/shift-swaps").set(mgr).send({
+      branch_id: 1, class_id: 2, work_date: today, swap_with_id: coach.id, reason: "QL bận việc" });
+    assert.equal(swap.status, 201, "Quản Lý tạo yêu cầu đổi ca");
+    const cancel = await request(app).delete("/api/shift-swaps/" + swap.body.id).set(mgr);
+    assert.equal(cancel.status, 200, "Quản Lý hủy yêu cầu đổi ca của mình");
+    const preq = await request(app).post("/api/profile/request").set(mgr).send({
+      full_name: "Quản Lý Test", phone: "0909000111" });
+    assert.ok([200, 201].includes(preq.status), "Quản Lý gửi yêu cầu sửa hồ sơ chờ duyệt");
+    const ts = await request(app).get(`/api/timesheets?branch_id=1&month=${today.slice(0, 7)}&user_id=${mgrId}`).set(auth);
+    assert.ok(ts.body.length >= 1, "điểm danh của Quản Lý đã tự sinh buổi chấm công");
+
     // Sao lưu toàn bộ dữ liệu vẫn chỉ admin
     const bk = await request(app).get("/api/export/backup").set(mgr);
     assert.equal(bk.status, 403);
