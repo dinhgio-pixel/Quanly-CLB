@@ -121,9 +121,19 @@ router.get("/sessions/:id", async (req, res) => {
 });
 
 router.delete("/sessions/:id", async (req, res) => {
-  const { rows } = await db.query("SELECT class_id FROM attendance_sessions WHERE id = $1", [req.params.id]);
+  const { rows } = await db.query(
+    "SELECT class_id, session_date, created_by FROM attendance_sessions WHERE id = $1", [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: "Không tìm thấy buổi điểm danh" });
   if (!(await assertClassAccess(req, res, rows[0].class_id))) return;
+  const sess = rows[0];
+  // Xóa luôn buổi chấm công TỰ SINH từ buổi điểm danh này (của người đã điểm danh),
+  // tránh tính lương/giờ dạy cho 1 buổi đã bị xóa vì điểm danh nhầm
+  const { dateStr } = require("../lib/slots");
+  await db.query(
+    `DELETE FROM coach_timesheets WHERE user_id = $1 AND class_id = $2 AND work_date = $3
+       AND note = 'Tự động từ điểm danh'`,
+    [sess.created_by, sess.class_id, dateStr(sess.session_date)]
+  );
   await db.query("DELETE FROM attendance_sessions WHERE id = $1", [req.params.id]);
   res.json({ ok: true });
 });

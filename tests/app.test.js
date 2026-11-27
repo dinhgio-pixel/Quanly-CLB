@@ -336,6 +336,45 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(ts2.rows[0].n, 0);
   });
 
+  it("xóa buổi điểm danh: xóa cả buổi + chấm công tự sinh; HLV ngoài lớp bị chặn", async () => {
+    const { query } = require("../src/db");
+    const auth = { Authorization: "Bearer " + adminToken };
+    // HLV riêng cho test này (hlv_test đã bị đổi mật khẩu ở test bảo mật phía trước)
+    const cNew = await request(app).post("/api/users").set(auth).send({
+      username: "hlv_xoa", password: "Matkhau123", full_name: "HLV Xóa Điểm Danh", role: "coach" });
+    assert.equal(cNew.status, 201);
+    const coach = cNew.body;
+    await request(app).put(`/api/users/${coach.id}/classes`).set(auth)
+      .send({ classIds: [1], branchIds: [1] });
+    const cauth = { Authorization: "Bearer " + (await loginAs("hlv_xoa", "Matkhau123")) };
+    const d = new Date(Date.now() + 3 * 864e5);
+    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const roster = await request(app).get("/api/students?class_id=1&status=active").set(cauth);
+    const save = await request(app).post("/api/attendance/sessions").set(cauth).send({
+      class_id: 1, session_date: ds, records: [{ student_id: roster.body[0].id, status: "present" }] });
+    assert.equal(save.status, 200);
+    const sid = save.body.session_id;
+    const ts1 = await query(
+      "SELECT id FROM coach_timesheets WHERE user_id = $1 AND class_id = 1 AND work_date = $2 AND note = 'Tự động từ điểm danh'",
+      [coach.id, ds]);
+    assert.equal(ts1.rows.length, 1, "điểm danh đã sinh chấm công");
+    // HLV không thuộc lớp 1 -> bị chặn xóa
+    await request(app).post("/api/users").set(auth).send({
+      username: "hlv_ngoai", password: "Matkhau123", full_name: "HLV Ngoài Lớp", role: "coach" });
+    const outAuth = { Authorization: "Bearer " + (await loginAs("hlv_ngoai", "Matkhau123")) };
+    const forb = await request(app).delete("/api/attendance/sessions/" + sid).set(outAuth);
+    assert.equal(forb.status, 403, "HLV ngoài lớp không xóa được");
+    // HLV của lớp xóa được; buổi mất và chấm công tự sinh mất theo
+    const del = await request(app).delete("/api/attendance/sessions/" + sid).set(cauth);
+    assert.equal(del.status, 200);
+    const gone = await request(app).get("/api/attendance/sessions/" + sid).set(cauth);
+    assert.equal(gone.status, 404);
+    const ts2 = await query(
+      "SELECT id FROM coach_timesheets WHERE user_id = $1 AND class_id = 1 AND work_date = $2 AND note = 'Tự động từ điểm danh'",
+      [coach.id, ds]);
+    assert.equal(ts2.rows.length, 0, "chấm công tự sinh bị xóa theo buổi điểm danh");
+  });
+
   it("nhiều HLV cùng lớp: ai điểm danh bằng tài khoản mình thì người đó được chấm công", async () => {
     const auth = { Authorization: "Bearer " + adminToken };
     const { query } = require("../src/db");

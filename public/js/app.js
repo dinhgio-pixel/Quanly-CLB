@@ -513,16 +513,17 @@ async function vClassDetail(id, tab) {
       <td>${feeBadge(s.fee_state)}</td>
       <td><button class="btn small ghost" onclick="event.stopPropagation();transferStudent(${s.id})">🔀 Chuyển lớp</button></td></tr>`).join("")}</table></div>`;
   } else if (tab === "attendance") {
-    el.innerHTML = `<div class="row"><input type="date" id="attDate" value="${todayInput()}" style="width:auto">
+    el.innerHTML = `<div class="row"><input type="date" id="attDate" value="${todayInput()}" style="width:auto" onchange="attDateChanged(${id})">
       <button class="btn" onclick="takeAttendance(${id})">Điểm danh</button>
       <button class="btn ghost" onclick="attSummary(${id})">% Chuyên cần</button></div>
       <div class="row" style="margin-top:.5rem"><input type="month" id="attMonth" value="${todayInput().slice(0, 7)}" style="width:auto">
       <button class="btn ghost" onclick="exportAttendance(${id})">⬇ Xuất Excel điểm danh</button></div>
+      <div id="attWarn" style="margin-top:.5rem">${attWarnHtml(id, todayInput())}</div>
       <div id="attList" style="margin-top:.7rem"></div>`;
     const ss = await api("GET", `/attendance/sessions?class_id=${id}`);
     $("#attList").innerHTML = ss.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Có mặt</th><th></th></tr>
       ${ss.map((s) => `<tr><td><a href="javascript:void(0)" onclick="viewSession(${s.id})">${fmtDate(s.session_date)}</a></td><td>${s.present_count}/${s.total_count}</td>
-      <td><button class="btn small ghost" onclick="takeAttendance(${id},'${String(s.session_date).slice(0, 10)}')">Sửa</button></td></tr>`).join("")}</table></div>`
+      <td><div class="btnrow" style="margin:0;flex-wrap:nowrap"><button class="btn small ghost" onclick="takeAttendance(${id},'${String(s.session_date).slice(0, 10)}')">Sửa</button><button class="btn small danger" onclick="attDelete(${s.id},'${String(s.session_date).slice(0, 10)}')">Xóa</button></div></td></tr>`).join("")}</table></div>`
       : `<p class="muted">Chưa có buổi điểm danh nào.</p>`;
   } else if (tab === "logs") {
     const logs = await api("GET", `/teaching-logs?class_id=${id}`);
@@ -876,6 +877,7 @@ window.takeAttendance = async (cid, date) => {
     roster = (await api("GET", `/students?class_id=${cid}&status=active`)).map((s) => ({ id: s.id, full_name: s.full_name, status: "present" }));
   }
   openModal(`<h3>Điểm danh — ${esc(className(cid))} · ${fmtDate(date)}</h3>
+    ${attWarnHtml(cid, date)}
     ${roster.map((r) => `<div class="att-row"><div class="nm">${esc(r.full_name)}</div>
       <div class="seg" data-sid="${r.id}">
         <button data-v="present" class="${r.status === "present" ? "on-p" : ""}">Có mặt</button>
@@ -891,6 +893,37 @@ window.takeAttendance = async (cid, date) => {
     seg.dataset.sel = b.dataset.v;
   });
   $$("#modalBody .seg").forEach((seg) => { if (!seg.dataset.sel) seg.dataset.sel = "present"; });
+};
+/* Cảnh báo điểm danh nhầm ngày: ngày chọn không nằm trong lịch học của lớp */
+const VN_DAYS = ["Chủ Nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+function classDays(cid) {
+  const c = S.classes.find((x) => x.id === cid);
+  if (!c || !c.schedule) return null;
+  const part = String(c.schedule).split("·")[0]; // phần thứ trong tuần, vd "T2, T4, T6"
+  const map = { T2: 1, T3: 2, T4: 3, T5: 4, T6: 5, T7: 6, CN: 0 };
+  const days = new Set();
+  for (const tok of part.split(/[,\s]+/)) { const t = tok.trim().toUpperCase(); if (t in map) days.add(map[t]); }
+  return days.size ? { days, text: part.trim() } : null;
+}
+function attWarnHtml(cid, dateStr) {
+  const info = classDays(cid);
+  if (!info || !dateStr) return "";
+  const wd = new Date(dateStr + "T00:00:00").getDay();
+  if (info.days.has(wd)) return "";
+  return `<p style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:.55rem .7rem;color:#92400e;margin:.4rem 0">
+    ⚠️ <b>Ngày ${fmtDate(dateStr)} (${VN_DAYS[wd]}) không thuộc lịch học của lớp</b> (lịch lớp: ${esc(info.text)}).
+    Kiểm tra lại kẻo điểm danh nhầm ngày — nếu đây là buổi học bù thì cứ lưu bình thường.</p>`;
+}
+window.attDateChanged = (cid) => {
+  const w = $("#attWarn");
+  if (w) w.innerHTML = attWarnHtml(cid, ($("#attDate") || {}).value);
+};
+window.attDelete = async (sid, dateStr) => {
+  if (!confirm(`Xóa buổi điểm danh ngày ${fmtDate(dateStr)}?\nToàn bộ kết quả điểm danh của buổi này sẽ bị xóa; buổi chấm công tự sinh từ buổi này (nếu có) cũng bị xóa theo.`)) return;
+  try {
+    await api("DELETE", `/attendance/sessions/${sid}`);
+    toast("Đã xóa buổi điểm danh"); route();
+  } catch (err) { toast(err.message); }
 };
 window.saveAttendance = async (cid, date) => {
   const records = $$("#modalBody .seg").map((seg) => ({ student_id: Number(seg.dataset.sid), status: seg.dataset.sel || "present" }));
