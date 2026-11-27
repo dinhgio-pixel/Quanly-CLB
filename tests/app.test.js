@@ -455,6 +455,24 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(forb.status, 403);
   });
 
+  it("tài chính: doanh số giảng dạy theo từng lớp", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const now = new Date();
+    const m = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const q = `branch_id=1&from=${m}-01&to=${m}-${String(lastDay).padStart(2, "0")}`;
+    const bc = await request(app).get(`/api/payments/revenue/by-class?${q}`).set(auth);
+    assert.equal(bc.status, 200);
+    const row = bc.body.find((r) => r.class_name === "Lớp Lương Test");
+    assert.ok(row, "có dòng của lớp test (tạo ở test chi tiết lương)");
+    assert.equal(row.total, 2000000, "doanh số lớp = học phí đã thu của học viên lớp đó");
+    assert.ok(row.count >= 1);
+    // HLV thường không xem được doanh số theo lớp
+    const cAuth = { Authorization: "Bearer " + (await loginAs("hlv_luong", "Matkhau123")) };
+    const forb = await request(app).get(`/api/payments/revenue/by-class?${q}`).set(cAuth);
+    assert.equal(forb.status, 403);
+  });
+
   it("nhiều HLV cùng lớp: ai điểm danh bằng tài khoản mình thì người đó được chấm công", async () => {
     const auth = { Authorization: "Bearer " + adminToken };
     const { query } = require("../src/db");

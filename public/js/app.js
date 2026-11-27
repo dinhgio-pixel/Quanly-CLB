@@ -1692,9 +1692,23 @@ async function vFinance() {
   const label = (FIN_TABS.find(([k]) => k === finTab) || [])[1] || "";
   try {
     const lastDay = new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate();
-    const pays = await api("GET", `/payments?branch_id=${S.branchId}&category=${finTab}&from=${m}-01&to=${m}-${String(lastDay).padStart(2, "0")}`);
+    const to = `${m}-${String(lastDay).padStart(2, "0")}`;
+    const pays = await api("GET", `/payments?branch_id=${S.branchId}&category=${finTab}&from=${m}-01&to=${to}`);
     const total = pays.reduce((a, p) => a + Number(p.amount || 0), 0);
-    $("#finBody").innerHTML = `<p style="margin:.7rem 0 0">Tổng thu <b>${label}</b> tháng ${m.slice(5)}/${m.slice(0, 4)}: <b>${fmtVND(total)}</b> · ${pays.length} khoản</p>` +
+    // Tab Giảng dạy: thêm bảng doanh số theo từng lớp ở trên danh sách khoản thu
+    let byClassHtml = "";
+    if (finTab === "tuition") {
+      const bc = await api("GET", `/payments/revenue/by-class?branch_id=${S.branchId}&from=${m}-01&to=${to}`).catch(() => []);
+      if (bc.length) {
+        byClassHtml = `<h4 style="margin:.9rem 0 .3rem">🏫 Doanh số giảng dạy theo từng lớp</h4>
+        <div class="tbl-wrap"><table><tr><th>Lớp</th><th style="text-align:right">Số khoản thu</th><th style="text-align:right">Doanh số</th></tr>
+        ${bc.map((r) => `<tr><td>${r.class_name ? esc(r.class_name) : `<span class="muted">Chưa gắn học viên / lớp</span>`}</td>
+        <td style="text-align:right">${r.count}</td><td style="text-align:right"><b>${fmtVND(r.total)}</b></td></tr>`).join("")}
+        </table></div>
+        <p class="muted">Doanh số của lớp = tổng học phí đã thu của các học viên đang thuộc lớp đó (cùng cách tính phân bổ lương HLV).</p>`;
+      }
+    }
+    $("#finBody").innerHTML = `<p style="margin:.7rem 0 0">Tổng thu <b>${label}</b> tháng ${m.slice(5)}/${m.slice(0, 4)}: <b>${fmtVND(total)}</b> · ${pays.length} khoản</p>` + byClassHtml +
       (pays.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Học viên / Nội dung</th><th>Người thu</th><th style="text-align:right">Số tiền</th></tr>
       ${pays.map((p) => `<tr><td>${fmtDate(p.paid_on)}</td>
       <td>${esc(p.student_name || p.note || "—")}${p.student_name && p.note ? `<br><span class="muted">${esc(p.note)}</span>` : ""}</td>

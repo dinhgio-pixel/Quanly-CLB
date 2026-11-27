@@ -184,6 +184,34 @@ async function recalcPaidThrough(sid) {
   await db.query("UPDATE students SET paid_through = $1 WHERE id = $2", [pt, sid]);
 }
 
+// Doanh số GIẢNG DẠY theo từng lớp (học phí của học viên thuộc lớp) — chỉ admin/quản lý.
+// Cách tính khớp với phân bổ lương HLV: doanh thu học phí của lớp = tổng khoản thu 'tuition'
+// của các học viên đang thuộc lớp đó.
+router.get("/revenue/by-class", requireRole("admin", "manager"), async (req, res) => {
+  const branchId = Number(req.query.branch_id);
+  const from = String(req.query.from || "").slice(0, 10);
+  const to = String(req.query.to || "").slice(0, 10);
+  if (!branchId) return res.status(400).json({ error: "Thiếu chi nhánh" });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    return res.status(400).json({ error: "Thiếu khoảng ngày (from/to)" });
+  }
+  const { rows } = await db.query(
+    `SELECT s.class_id, c.name AS class_name,
+            COALESCE(SUM(p.amount), 0)::bigint AS total, COUNT(p.id)::int AS cnt
+     FROM payments p
+     LEFT JOIN students s ON s.id = p.student_id
+     LEFT JOIN classes c ON c.id = s.class_id
+     WHERE p.category = 'tuition' AND p.branch_id = $1 AND p.paid_on >= $2 AND p.paid_on <= $3
+     GROUP BY s.class_id, c.name
+     ORDER BY total DESC, class_name`,
+    [branchId, from, to]
+  );
+  res.json(rows.map((r) => ({
+    class_id: r.class_id, class_name: r.class_name,
+    total: Number(r.total), count: r.cnt,
+  })));
+});
+
 // Tổng quan doanh thu theo nhóm (chỉ admin)
 router.get("/revenue/summary", requireRole("admin", "manager"), async (req, res) => {
   const { branch_id, from, to } = req.query;
