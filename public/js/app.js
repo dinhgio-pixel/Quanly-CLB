@@ -1030,6 +1030,9 @@ async function vTimesheets() {
   V.innerHTML = pageHead("Chấm công HLV", (isAdmin() ? `<button class="btn" onclick="tsForm()">+ Chấm công</button>` : "") +
     (isAdminLike() ? `<button class="btn ghost" onclick="exportTimesheets()">⬇ Xuất Excel</button>` : "")) + coachTabs("#/timesheets") +
     `<div class="card"><div class="row"><input id="tsMonth" type="month" value="${m}" style="width:auto">${coachOpts}
+    <select id="tsClass" style="width:auto"><option value="">Tất cả lớp</option>${
+      S.classes.filter((c) => c.branch_id === S.branchId)
+        .map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
     <button class="btn" onclick="loadTimesheets()">Xem</button></div></div>
     <div id="tsSummary"></div>
     <div class="card"><h3>Buổi dạy trong tháng</h3><div id="tsList"><p class="muted">Đang tải...</p></div></div>`;
@@ -1038,7 +1041,8 @@ async function vTimesheets() {
 window.loadTimesheets = async () => {
   const month = $("#tsMonth").value || todayInput().slice(0, 7);
   const uid = isAdminLike() && $("#tsCoach") ? $("#tsCoach").value : "";
-  const q = `?branch_id=${S.branchId}&month=${month}${uid ? "&user_id=" + uid : ""}`;
+  const cid = $("#tsClass") ? $("#tsClass").value : "";
+  const q = `?branch_id=${S.branchId}&month=${month}${uid ? "&user_id=" + uid : ""}${cid ? "&class_id=" + cid : ""}`;
   try {
     const [summary, list] = await Promise.all([
       api("GET", "/timesheets/summary" + q),

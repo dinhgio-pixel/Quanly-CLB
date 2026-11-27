@@ -375,6 +375,34 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(ts2.rows.length, 0, "chấm công tự sinh bị xóa theo buổi điểm danh");
   });
 
+  it("chấm công: lọc được theo lớp (cả danh sách buổi lẫn tổng hợp giờ)", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const users = await request(app).get("/api/users").set(auth);
+    const hlv = users.body.find((u) => u.username === "hlv_xoa");
+    assert.ok(hlv, "có HLV hlv_xoa từ test trước");
+    await request(app).put(`/api/users/${hlv.id}/classes`).set(auth)
+      .send({ classIds: [1, 2], branchIds: [1] });
+    const now = new Date();
+    const m = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const p1 = await request(app).post("/api/timesheets").set(auth).send({
+      branch_id: 1, user_id: hlv.id, class_id: 1, work_date: `${m}-05`, hours: 2 });
+    assert.equal(p1.status, 201);
+    const p2 = await request(app).post("/api/timesheets").set(auth).send({
+      branch_id: 1, user_id: hlv.id, class_id: 2, work_date: `${m}-06`, hours: 3 });
+    assert.equal(p2.status, 201);
+    const all = await request(app).get(`/api/timesheets?branch_id=1&month=${m}&user_id=${hlv.id}`).set(auth);
+    const onlyC2 = await request(app).get(`/api/timesheets?branch_id=1&month=${m}&user_id=${hlv.id}&class_id=2`).set(auth);
+    assert.ok(all.body.length >= 2, "có buổi ở cả 2 lớp");
+    assert.ok(onlyC2.body.length >= 1 && onlyC2.body.every((t) => t.class_id === 2),
+      "danh sách buổi chỉ còn lớp 2 khi lọc theo lớp");
+    const sumAll = await request(app).get(`/api/timesheets/summary?branch_id=1&month=${m}`).set(auth);
+    const sumC2 = await request(app).get(`/api/timesheets/summary?branch_id=1&month=${m}&class_id=2`).set(auth);
+    const rowAll = sumAll.body.find((r) => r.id === hlv.id);
+    const rowC2 = sumC2.body.find((r) => r.id === hlv.id);
+    assert.ok(rowC2 && rowC2.total_hours >= 3, "tổng hợp theo lớp 2 có giờ dạy");
+    assert.ok(rowAll.sessions > rowC2.sessions, "tổng hợp không lọc có nhiều buổi hơn");
+  });
+
   it("nhiều HLV cùng lớp: ai điểm danh bằng tài khoản mình thì người đó được chấm công", async () => {
     const auth = { Authorization: "Bearer " + adminToken };
     const { query } = require("../src/db");

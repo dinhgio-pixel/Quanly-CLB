@@ -49,12 +49,13 @@ router.get("/", async (req, res) => {
 
 // Tổng hợp giờ dạy theo HLV trong 1 tháng
 router.get("/summary", async (req, res) => {
-  const { branch_id, month } = req.query;
+  const { branch_id, month, class_id } = req.query;
   const own = await scopedUserId(req);
   const [from, to] = monthRange(month);
   const vals = [from, to];
   let joinExtra = "";
   if (branch_id) { vals.push(Number(branch_id)); joinExtra = `AND t.branch_id = $${vals.length}`; }
+  if (class_id) { vals.push(Number(class_id)); joinExtra += ` AND t.class_id = $${vals.length}`; }
   const conds = ["u.role IN ('coach','manager')", "u.status = 'active'"];
   if (own) { vals.push(own); conds.push(`u.id = $${vals.length}`); }
   const { rows } = await db.query(
