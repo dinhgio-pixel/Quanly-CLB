@@ -177,6 +177,69 @@ router.get("/", async (req, res) => {
   res.json(out);
 });
 
+// Chi tiết 1 HLV: lương gồm những khoản nào (buổi dạy, phân bổ học phí theo lớp, thu 1:1)
+router.get("/detail", async (req, res) => {
+  const branchId = Number(req.query.branch_id);
+  const month = String(req.query.month || "");
+  const userId = Number(req.query.user_id);
+  if (!branchId || !userId) return res.status(400).json({ error: "Thiếu chi nhánh / HLV" });
+  const out = await computePayroll(branchId, month);
+  if (out.error) return res.status(400).json({ error: out.error });
+  const row = out.rows.find((r) => r.coach_id === userId);
+  if (!row) return res.status(404).json({ error: "HLV không có trong bảng lương tháng này" });
+  const { start, end } = monthRange(month);
+
+  const timesheets = (await db.query(
+    `SELECT t.id, t.work_date, t.hours, t.note, c.name AS class_name
+     FROM coach_timesheets t LEFT JOIN classes c ON c.id = t.class_id
+     WHERE t.branch_id = $1 AND t.user_id = $2 AND t.work_date >= $3 AND t.work_date < $4
+     ORDER BY t.work_date, t.id`, [branchId, userId, start, end])).rows;
+
+  // Phân bổ học phí theo từng lớp (giống hệt cách computePayroll tính, tách ra từng lớp)
+  const coachClassHours = (await db.query(
+    `SELECT t.class_id, c.name AS class_name, COALESCE(SUM(t.hours), 0)::float AS coach_hours
+     FROM coach_timesheets t JOIN classes c ON c.id = t.class_id
+     WHERE t.branch_id = $1 AND t.user_id = $2 AND t.class_id IS NOT NULL
+       AND t.work_date >= $3 AND t.work_date < $4
+     GROUP BY t.class_id, c.name ORDER BY c.name`, [branchId, userId, start, end])).rows;
+  const classShares = [];
+  for (const ch of coachClassHours) {
+    const tot = await db.query(
+      `SELECT COALESCE(SUM(hours), 0)::float AS h FROM coach_timesheets
+       WHERE branch_id = $1 AND class_id = $2 AND work_date >= $3 AND work_date < $4`,
+      [branchId, ch.class_id, start, end]);
+    const rev = await db.query(
+      `SELECT COALESCE(SUM(p.amount), 0)::bigint AS total
+       FROM payments p JOIN students s ON s.id = p.student_id
+       WHERE p.category = 'tuition' AND p.branch_id = $1 AND p.paid_on >= $2 AND p.paid_on < $3
+         AND s.class_id = $4`,
+      [branchId, start, end, ch.class_id]);
+    const classHoursTotal = Number(tot.rows[0].h);
+    const classRevenue = Number(rev.rows[0].total);
+    const share = classHoursTotal > 0 && classRevenue > 0
+      ? Math.round(classRevenue * Number(ch.coach_hours) / classHoursTotal) : 0;
+    classShares.push({
+      class_id: ch.class_id, class_name: ch.class_name,
+      coach_hours: Number(ch.coach_hours), class_hours: classHoursTotal,
+      class_revenue: classRevenue, share,
+    });
+  }
+
+  const privates = (await db.query(
+    `SELECT p.id, p.paid_on, p.amount, p.note, s.full_name AS student_name
+     FROM payments p LEFT JOIN students s ON s.id = p.student_id
+     WHERE p.category = 'private' AND p.coach_id = $1 AND p.branch_id = $2
+       AND p.paid_on >= $3 AND p.paid_on < $4
+     ORDER BY p.paid_on, p.id`, [userId, branchId, start, end])).rows;
+
+  res.json({
+    ...row, month, branch_id: branchId,
+    timesheets,
+    class_shares: classShares,
+    private_payments: privates.map((p) => ({ ...p, amount: Number(p.amount) })),
+  });
+});
+
 // Chốt lương: ghi khoản chi salary cho từng HLV chưa chốt trong tháng/chi nhánh
 router.post("/settle", async (req, res) => {
   const branchId = Number((req.body || {}).branch_id);

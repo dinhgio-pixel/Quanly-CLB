@@ -1293,13 +1293,13 @@ async function vPayroll() {
    ${pr.rows.length ? `<div class="tbl-wrap"><table><tr><th>HLV</th><th>Kiểu trả</th><th style="text-align:right">Giờ dạy</th>
      <th style="text-align:right">Thu dạy 1:1</th><th style="text-align:right">Phân bổ học phí lớp</th>
      <th style="text-align:right">Lương</th><th>Trạng thái</th></tr>
-   ${pr.rows.map((r) => `<tr><td><b>${esc(r.coach_name)}</b></td>
+   ${pr.rows.map((r) => `<tr><td><a href="javascript:void(0)" onclick="payrollDetail(${r.coach_id})"><b>${esc(r.coach_name)}</b></a></td>
      <td class="muted">${PAY_TYPE_LABEL[r.pay_type] || r.pay_type}${r.note ? "<br>" + esc(r.note) : ""}</td>
      <td style="text-align:right">${r.hours}</td>
      <td style="text-align:right">${fmtVND(r.private_revenue)}</td>
      <td style="text-align:right">${fmtVND(r.tuition_share)}</td>
      <td style="text-align:right"><b>${r.salary == null ? "—" : fmtVND(r.salary)}</b></td>
-     <td>${r.settled ? `<span class="badge b-paid">Đã chốt</span>` : `<span class="muted">Chưa chốt</span>`}</td></tr>`).join("")}
+     <td>${r.settled ? `<span class="badge b-paid">Đã chốt</span>` : `<span class="muted">Chưa chốt</span>`} <button class="btn small ghost" onclick="payrollDetail(${r.coach_id})">Chi tiết</button></td></tr>`).join("")}
    </table></div>` : `<p class="muted">Chưa có HLV nào hoạt động ở chi nhánh này trong tháng.</p>`}
    <p class="muted">Kiểu trả lương + đơn giá đặt ở mục Tài khoản → sửa HLV. Giờ dạy lấy từ Chấm công (vào mục Chấm công để sửa từng buổi). Phân bổ học phí lớp: doanh thu học phí của lớp chia theo tỷ lệ giờ dạy của các HLV trong lớp đó.</p></div>
    <div class="card"><div class="row spread"><h3 style="margin:0">Sổ chi tháng này</h3>
@@ -1311,6 +1311,42 @@ async function vPayroll() {
      <td>${isAdmin() ? `<button class="btn small danger" onclick="expenseDel(${e.id})">Xóa</button>` : ""}</td></tr>`).join("")}</table></div>`
      : `<p class="muted">Chưa có khoản chi nào trong tháng.</p>`}</div>`;
 }
+/* Chi tiết lương 1 HLV: lương gồm những khoản nào, từ nguồn thu nào */
+window.payrollDetail = async (coachId) => {
+  const m = payrollMonth || todayInput().slice(0, 7);
+  openModal(`<h3>Đang tải chi tiết lương...</h3>`);
+  let d;
+  try {
+    d = await api("GET", `/payroll/detail?branch_id=${S.branchId}&month=${m}&user_id=${coachId}`);
+  } catch (err) { toast(err.message); closeModal(); return; }
+  const pct = d.revenue_share_pct != null ? d.revenue_share_pct : 40;
+  const concl =
+    d.pay_type === "revenue_share"
+      ? `<p>💰 <b>Kết luận:</b> ${pct}% × doanh thu giảng dạy ${fmtVND(d.teaching_revenue)} = <b>Lương ${d.salary == null ? "—" : fmtVND(d.salary)}</b></p>`
+      : d.pay_type === "fixed"
+        ? `<p>💰 <b>Kết luận:</b> Lương cố định tháng = <b>${d.salary == null ? "— (chưa đặt)" : fmtVND(d.salary)}</b></p>`
+        : `<p>💰 <b>Kết luận:</b> ${d.hours} giờ × đơn giá ${d.hourly_rate == null ? "— (chưa đặt)" : fmtVND(d.hourly_rate) + "/giờ"} = <b>Lương ${d.salary == null ? "—" : fmtVND(d.salary)}</b></p>`;
+  openModal(`<h3>💵 Chi tiết lương — ${esc(d.coach_name)}</h3>
+  <p class="muted">Tháng ${m.slice(5)}/${m.slice(0, 4)} · Kiểu trả: ${PAY_TYPE_LABEL[d.pay_type] || d.pay_type}${d.note ? " (" + esc(d.note) + ")" : ""} · ${d.settled ? "Đã chốt lương" : "Chưa chốt lương"}</p>
+  <h4>⏱️ Buổi dạy trong tháng (${d.timesheets.length} buổi · ${d.hours} giờ)</h4>
+  ${d.timesheets.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Lớp</th><th style="text-align:right">Giờ</th><th>Ghi chú</th></tr>
+    ${d.timesheets.map((t) => `<tr><td>${fmtDate(t.work_date)}</td><td>${esc(t.class_name || "—")}</td><td style="text-align:right"><b>${t.hours}</b></td><td class="muted">${esc(t.note || "")}</td></tr>`).join("")}</table></div>`
+    : `<p class="muted">Chưa có buổi chấm công nào trong tháng.</p>`}
+  <h4>🎓 Nguồn thu học phí lớp — phần phân bổ cho HLV (tổng ${fmtVND(d.tuition_share)})</h4>
+  ${d.class_shares.length ? `<div class="tbl-wrap"><table><tr><th>Lớp</th><th style="text-align:right">Giờ HLV / Tổng giờ lớp</th><th style="text-align:right">Doanh thu học phí lớp</th><th style="text-align:right">Phần phân bổ</th></tr>
+    ${d.class_shares.map((c) => `<tr><td>${esc(c.class_name)}</td><td style="text-align:right">${c.coach_hours} / ${c.class_hours}</td><td style="text-align:right">${fmtVND(c.class_revenue)}</td><td style="text-align:right"><b>${fmtVND(c.share)}</b></td></tr>`).join("")}</table></div>
+  <p class="muted">Cách tính: doanh thu học phí của lớp chia theo tỷ lệ giờ dạy của HLV trong tổng giờ dạy của lớp đó.</p>`
+    : `<p class="muted">HLV chưa có giờ dạy ở lớp nào, hoặc các lớp chưa có doanh thu học phí trong tháng.</p>`}
+  <h4>🥋 Nguồn thu dạy 1:1 (tổng ${fmtVND(d.private_revenue)})</h4>
+  ${d.private_payments.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Học viên / Nội dung</th><th style="text-align:right">Số tiền</th></tr>
+    ${d.private_payments.map((x) => `<tr><td>${fmtDate(x.paid_on)}</td><td>${esc(x.student_name || x.note || "—")}</td><td style="text-align:right"><b>${fmtVND(x.amount)}</b></td></tr>`).join("")}</table></div>`
+    : `<p class="muted">Chưa có khoản thu dạy 1:1 nào gắn HLV này trong tháng.</p>`}
+  <div class="card" style="background:var(--hatch-widget-surface-muted, #f8fafc)">
+    <p>📊 <b>Doanh thu giảng dạy của HLV:</b> ${fmtVND(d.teaching_revenue)} <span class="muted">(= phân bổ học phí lớp ${fmtVND(d.tuition_share)} + thu dạy 1:1 ${fmtVND(d.private_revenue)})</span></p>
+    ${concl}
+  </div>
+  <div class="btnrow"><button class="btn ghost" onclick="closeModal()">Đóng</button></div>`);
+};
 window.settlePayroll = async (m) => {
   if (!await confirmDlg(`Chốt lương tháng ${m.slice(5)}/${m.slice(0, 4)}? Khoản chi lương của từng HLV sẽ được ghi vào sổ chi của chi nhánh đang chọn.`)) return;
   try {

@@ -403,6 +403,58 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.ok(rowAll.sessions > rowC2.sessions, "tổng hợp không lọc có nhiều buổi hơn");
   });
 
+  it("chi tiết lương HLV: xem được buổi dạy, phân bổ học phí theo lớp và thu 1:1", async () => {
+    const auth = { Authorization: "Bearer " + adminToken };
+    const now = new Date();
+    const m = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    // Lớp riêng cho test này để số liệu phân bổ không lẫn với HLV/lớp khác
+    const cls = await request(app).post("/api/classes").set(auth).send({
+      branch_id: 1, name: "Lớp Lương Test", schedule: "T2, T4 · 17:00-18:30", status: "active" });
+    assert.equal(cls.status, 201, "tạo lớp test");
+    const classId = cls.body.id;
+    const cu = await request(app).post("/api/users").set(auth).send({
+      username: "hlv_luong", password: "Matkhau123", full_name: "HLV Lương", role: "coach",
+      pay_type: "revenue_share", revenue_share_pct: 50 });
+    assert.equal(cu.status, 201);
+    const hlv = cu.body;
+    await request(app).put(`/api/users/${hlv.id}/classes`).set(auth)
+      .send({ classIds: [classId], branchIds: [1] });
+    // Học viên của lớp + khoản học phí 2.000.000 trong tháng
+    const st = await request(app).post("/api/students").set(auth).send({
+      full_name: "HV Lớp Lương", branch_id: 1, class_id: classId, joined_on: `${m}-01`, status: "active" });
+    assert.equal(st.status, 201, "tạo học viên");
+    const pay = await request(app).post("/api/payments").set(auth).send({
+      branch_id: 1, student_id: st.body.id, category: "tuition", amount: 2000000, paid_on: `${m}-07` });
+    assert.equal(pay.status, 201);
+    // 2 buổi chấm công tay (2h x 2) ở lớp test
+    for (const d of ["05", "06"]) {
+      const ts = await request(app).post("/api/timesheets").set(auth).send({
+        branch_id: 1, user_id: hlv.id, class_id: classId, work_date: `${m}-${d}`, hours: 2 });
+      assert.equal(ts.status, 201);
+    }
+    // Khoản thu dạy 1:1 gắn HLV: 500.000
+    const pv = await request(app).post("/api/payments").set(auth).send({
+      branch_id: 1, category: "private", amount: 500000, paid_on: `${m}-08`, coach_id: hlv.id, note: "Dạy 1:1 test" });
+    assert.equal(pv.status, 201);
+    // Chi tiết lương
+    const det = await request(app).get(`/api/payroll/detail?branch_id=1&month=${m}&user_id=${hlv.id}`).set(auth);
+    assert.equal(det.status, 200);
+    assert.equal(det.body.timesheets.length, 2, "có 2 buổi dạy");
+    assert.equal(det.body.hours, 4, "tổng 4 giờ");
+    assert.equal(det.body.class_shares.length, 1, "phân bổ từ 1 lớp");
+    assert.equal(det.body.class_shares[0].class_revenue, 2000000, "doanh thu học phí lớp");
+    assert.equal(det.body.class_shares[0].share, 2000000, "HLV duy nhất của lớp -> phân bổ 100%");
+    assert.equal(det.body.private_payments.length, 1, "có 1 khoản thu 1:1");
+    assert.equal(det.body.private_revenue, 500000);
+    assert.equal(det.body.tuition_share, 2000000);
+    assert.equal(det.body.teaching_revenue, 2500000);
+    assert.equal(det.body.salary, 1250000, "lương = 50% x 2.500.000");
+    // HLV thường không xem được chi tiết lương
+    const cAuth = { Authorization: "Bearer " + (await loginAs("hlv_luong", "Matkhau123")) };
+    const forb = await request(app).get(`/api/payroll/detail?branch_id=1&month=${m}&user_id=${hlv.id}`).set(cAuth);
+    assert.equal(forb.status, 403);
+  });
+
   it("nhiều HLV cùng lớp: ai điểm danh bằng tài khoản mình thì người đó được chấm công", async () => {
     const auth = { Authorization: "Bearer " + adminToken };
     const { query } = require("../src/db");
