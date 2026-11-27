@@ -1091,6 +1091,17 @@ describe("Quản lý CLB Vovinam (production)", () => {
     assert.equal(upd.status, 200);
     assert.equal(upd.body.amount, 60000);
 
+    // Hạng mục doanh thu Tập huấn (thêm 27/11): ghi thu được + vào tổng quan doanh thu
+    const tr = await request(app).post("/api/payments").set(mgr).send({
+      branch_id: 1, category: "training", amount: 300000, paid_on: today, note: "Thu tập huấn GGV" });
+    assert.equal(tr.status, 201, "ghi khoản thu Tập huấn");
+    const sum = await request(app).get("/api/payments/revenue/summary").set(mgr);
+    assert.equal(sum.status, 200);
+    assert.ok(sum.body.byCategory.training.total >= 300000, "tổng quan doanh thu có hạng mục Tập huấn");
+    const lastDay = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate();
+    const finList = await request(app).get(`/api/payments?branch_id=1&category=training&from=${today.slice(0, 7)}-01&to=${today.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`).set(mgr);
+    assert.ok(finList.body.some((p) => p.id === tr.body.id), "trang Tài chính lọc được khoản Tập huấn");
+
     // GHI ĐƯỢC: xóa học viên (chuyển HV cũ) như admin
     const del = await request(app).delete("/api/students/" + sid).set(mgr).send({ reason: "Test quản lý xóa" });
     assert.equal(del.status, 200);

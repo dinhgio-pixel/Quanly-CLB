@@ -28,7 +28,7 @@ const roleLabel = (r) => r === "admin" ? "Quản trị viên" : r === "manager" 
 
 const FEE_LABEL = { paid: "Đã đóng", due_soon: "Sắp hết hạn", overdue: "Quá hạn", unpaid: "Chưa đóng", paused: "Tạm dừng", stopped: "Dừng học" };
 const ST_LABEL = { active: "Đang học", paused: "Tạm dừng", stopped: "Dừng học" };
-const CAT_LABEL = { tuition: "Học phí lớp", private: "Dạy 1:1", rental: "Cho thuê", performance: "Biểu diễn", other: "Khác" };
+const CAT_LABEL = { tuition: "Học phí lớp", private: "Dạy 1:1", rental: "Cho thuê", performance: "Biểu diễn", training: "Tập huấn", other: "Khác" };
 /* Icon võ phục Vovinam: áo xanh dương, màu đai theo cấp đai của từng người */
 function beltColor(belt) {
   const b = String(belt || "").toLowerCase();
@@ -131,21 +131,31 @@ function watchIdle() {
 const NAV = [
   ["#/dashboard", "📊", "Tổng quan"],
   ["#/classes", "🏫", "Lớp học"],
-  ["#/students", "🧑‍🎓", "Học viên"],
-  ["#/teaching-logs", "📝", "Nhật ký dạy"],
-  ["#/timesheets", "⏱️", "Chấm công"],
-  ["#/shift-swaps", "🔄", "Đổi ca"],
+  ["#/coaches", "🥋", "Huấn luyện viên"],
   ["#/directory", "🔍", "Tra cứu"],
   ["#/fees", "💰", "Thu phí"],
-  ["#/payroll", "💵", "Lương HLV", true],
   ["#/activities", "🏟️", "Hoạt động", true],
+  ["#/finance", "🏦", "Tài chính", true],
   ["#/profile", "👤", "Hồ sơ", false, "coach,manager"],
-  ["#/former-students", "🗂️", "Học viên cũ"],
-  ["#/packages", "📦", "Gói học", true],
   ["#/branches", "🏢", "Chi nhánh", true],
   ["#/users", "👥", "Tài khoản", true],
   ["#/audit", "🛡️", "Nhật ký", true],
 ];
+// Các trang con thuộc về 1 mục menu cha (để tô sáng đúng mục ở menu trái)
+const NAV_GROUPS = { students: "#/classes", "teaching-logs": "#/classes", "former-students": "#/classes",
+  timesheets: "#/coaches", "shift-swaps": "#/coaches", payroll: "#/coaches", packages: "#/activities" };
+// Hàng nút chuyển mục ngang hàng trong cùng 1 khu vực (Lớp học / Huấn luyện viên)
+const tabBar = (items, activeHref) => `<div class="row" style="margin-bottom:.6rem">${items.map(([href, label]) =>
+  `<button class="btn ${href === activeHref ? "" : "ghost"}" onclick="location.hash='${href}'">${label}</button>`).join("")}</div>`;
+const classTabs = (active) => tabBar([["#/classes", "🏫 Lớp học"], ["#/students", "🧑‍🎓 Học viên"], ["#/teaching-logs", "📝 Nhật ký dạy"], ["#/former-students", "🗂️ Học viên cũ"]], active);
+const coachTabs = (active) => tabBar([["#/timesheets", "⏱️ Chấm công"], ["#/shift-swaps", "🔄 Đổi ca"],
+  ...(isAdminLike() ? [["#/payroll", "💵 Lương HLV"]] : [])], active);
+// Hàng tab của khu vực Hoạt động (Gói học có route riêng nên là điều hướng)
+const actTabsHtml = (active) => `<div class="row" style="margin-bottom:.6rem">
+  <button class="btn ${active === "rent" ? "" : "ghost"}" onclick="actTab='rent';location.hash='#/activities';if(location.hash==='#/activities')vActivities()">🏟️ Cho thuê sân</button>
+  <button class="btn ${active === "private" ? "" : "ghost"}" onclick="actTab='private';location.hash='#/activities';if(location.hash==='#/activities')vActivities()">🥋 Dạy 1:1</button>
+  <button class="btn ${active === "perf" ? "" : "ghost"}" onclick="actTab='perf';location.hash='#/activities';if(location.hash==='#/activities')vActivities()">🎭 Biểu diễn</button>
+  <button class="btn ${active === "packages" ? "" : "ghost"}" onclick="location.hash='#/packages'">📦 Gói học</button></div>`;
 
 function renderNav() {
   const nav = $("#sidenav");
@@ -155,8 +165,10 @@ function renderNav() {
   nav.innerHTML = `<div class="nav-user">👤 ${esc(S.user.full_name || S.user.username)}<br><span class="muted">${roleLabel(S.user.role)}</span></div>` +
     items.map((n) =>
       `<a href="${n[0]}" data-nav="${n[0]}">${n[1]} ${n[2]}</a>`).join("");
+  const seg0 = (location.hash || "#/dashboard").replace("#/", "").split("/")[0];
+  const activeFor = NAV_GROUPS[seg0] || (seg0 ? "#/" + seg0 : "#/dashboard");
   $$("#sidenav a").forEach((a) => {
-    if (location.hash.startsWith(a.dataset.nav)) a.classList.add("active");
+    if (a.dataset.nav === activeFor) a.classList.add("active");
   });
 }
 
@@ -362,7 +374,7 @@ async function vDashboard() {
     <div class="card"><div class="num" style="color:var(--bad)">${d.overdue.length}</div><div class="lbl">Quá hạn HP</div></div>
     <div class="card"><div class="num" style="color:var(--warn)">${d.dueSoon.length}</div><div class="lbl">Sắp hết hạn</div></div>
   </div>
-  ${rev ? `<div class="card"><h3>💰 Doanh thu tháng này: ${fmtVND(rev.tuition + rev.private + rev.rental + rev.performance + rev.other)}</h3>
+  ${rev ? `<div class="card"><h3>💰 Doanh thu tháng này: ${fmtVND(rev.tuition + rev.private + rev.rental + rev.performance + (rev.training || 0) + rev.other)}</h3>
     <div class="tbl-wrap"><table>
     ${Object.keys(CAT_LABEL).map((k) => `<tr><td>${CAT_LABEL[k]}</td><td style="text-align:right"><b>${fmtVND(rev[k])}</b></td></tr>`).join("")}
     </table></div></div>` : ""}
@@ -447,7 +459,7 @@ async function vClasses() {
       ${cards ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">${cards}</div>`
               : `<p class="muted">Chưa có lớp nào ở chi nhánh này.</p>`}`;
   }).join("");
-  V.innerHTML = pageHead("Lớp học") + (sections || `<p class="muted">Chưa có chi nhánh nào.</p>`);
+  V.innerHTML = pageHead("Lớp học") + classTabs("#/classes") + (sections || `<p class="muted">Chưa có chi nhánh nào.</p>`);
 }
 window.classForm = async (id, presetBranchId) => {
   let c = {};
@@ -559,7 +571,7 @@ window.toggleCoach = async (uid, cid, has) => {
 
 /* ----- students ----- */
 async function vStudents() {
-  V.innerHTML = pageHead("Học viên", `<button class="btn" onclick="studentForm()">+ Thêm HV</button>`) +
+  V.innerHTML = pageHead("Học viên", `<button class="btn" onclick="studentForm()">+ Thêm HV</button>`) + classTabs("#/students") +
     `<div id="delReqBox"></div>` +
     `<div class="card"><div class="row">
       <input id="q" placeholder="Tìm tên / SĐT..." style="flex:1;min-width:160px">
@@ -598,7 +610,7 @@ window.delReqReview = async (id, ok) => {
 };
 // Danh sách học viên cũ (đã từng tập và nghỉ)
 async function vFormerStudents() {
-  V.innerHTML = pageHead("Học viên cũ") + `<div id="fsBody"><p class="muted">Đang tải...</p></div>`;
+  V.innerHTML = pageHead("Học viên cũ") + classTabs("#/former-students") + `<div id="fsBody"><p class="muted">Đang tải...</p></div>`;
   const list = await api("GET", `/students?branch_id=${S.branchId}&status=former`);
   $("#fsBody").innerHTML = list.length ? `<div class="card"><div class="tbl-wrap"><table>
     <tr><th>Họ tên</th><th>CLB</th><th>Lớp đã học</th><th>Trạng thái</th><th>SĐT</th><th>Ngày vào</th><th>Ngày nghỉ</th><th>Nguyên nhân nghỉ</th></tr>
@@ -812,7 +824,7 @@ function yearFeeCells(s, yr) {
 /* ----- packages (admin) ----- */
 async function vPackages() {
   if (!isAdminLike()) { location.hash = "#/dashboard"; return; }
-  V.innerHTML = pageHead("Gói học", isAdmin() ? `<button class="btn" onclick="pkgForm()">+ Thêm gói</button>` : "") +
+  V.innerHTML = pageHead("Gói học", isAdmin() ? `<button class="btn" onclick="pkgForm()">+ Thêm gói</button>` : "") + actTabsHtml("packages") +
     `<div class="card"><div class="tbl-wrap"><table><tr><th>Tên gói</th><th>Số buổi/tuần</th><th>Hình thức</th><th>Học phí</th><th>HV</th><th>TT</th><th></th></tr>
     ${S.packages.map((p) => `<tr><td><b>${esc(p.name)}</b></td><td>${p.sessions_per_week || "—"}</td>
       <td>${p.training_format === "private" ? "Kèm 1:1" : "Nhóm"}</td><td><b>${fmtVND(p.monthly_fee)}</b></td>
@@ -916,7 +928,7 @@ window.attSummary = async (cid) => {
 /* ----- teaching logs ----- */
 async function vTeachingLogs() {
   const m = todayInput().slice(0, 7);
-  V.innerHTML = pageHead("Nhật ký giảng dạy", `<button class="btn" onclick="logForm()">+ Ghi nhật ký</button>`) +
+  V.innerHTML = pageHead("Nhật ký giảng dạy", `<button class="btn" onclick="logForm()">+ Ghi nhật ký</button>`) + classTabs("#/teaching-logs") +
     `<div class="card"><div class="row"><select id="lClass" style="width:auto">
     ${S.classes.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
     <input type="month" id="lMonth" value="${m}" style="width:auto">
@@ -983,7 +995,7 @@ async function vTimesheets() {
           .map((u) => `<option value="${u.id}">${esc(u.full_name || u.username)}</option>`).join("")}</select>`
     : "";
   V.innerHTML = pageHead("Chấm công HLV", (isAdmin() ? `<button class="btn" onclick="tsForm()">+ Chấm công</button>` : "") +
-    (isAdminLike() ? `<button class="btn ghost" onclick="exportTimesheets()">⬇ Xuất Excel</button>` : "")) +
+    (isAdminLike() ? `<button class="btn ghost" onclick="exportTimesheets()">⬇ Xuất Excel</button>` : "")) + coachTabs("#/timesheets") +
     `<div class="card"><div class="row"><input id="tsMonth" type="month" value="${m}" style="width:auto">${coachOpts}
     <button class="btn" onclick="loadTimesheets()">Xem</button></div></div>
     <div id="tsSummary"></div>
@@ -1043,7 +1055,7 @@ window.tsDel = async (id) => {
 
 /* ----- đổi ca dạy ----- */
 async function vShiftSwaps() {
-  V.innerHTML = pageHead("Đổi ca dạy", `<button class="btn" onclick="shiftForm()">+ Yêu cầu đổi ca</button>`) +
+  V.innerHTML = pageHead("Đổi ca dạy", `<button class="btn" onclick="shiftForm()">+ Yêu cầu đổi ca</button>`) + coachTabs("#/shift-swaps") +
     (isAdminLike()
       ? `<div class="card"><div class="row"><select id="swStatus" style="width:auto"><option value="">Tất cả trạng thái</option><option value="pending" selected>Chờ duyệt</option><option value="approved">Đã duyệt</option><option value="rejected">Từ chối</option></select><button class="btn" onclick="loadShifts()">Lọc</button></div></div>`
       : `<div class="card"><p class="muted">HLV nào dạy thay sẽ điểm danh bằng tài khoản của mình — buổi dạy tự ghi chấm công cho người đó.</p></div>`) +
@@ -1218,7 +1230,7 @@ async function vPayroll() {
   const m = payrollMonth || todayInput().slice(0, 7);
   payrollMonth = m;
   const bName = (S.branches.find((b) => b.id === S.branchId) || {}).name || "";
-  V.innerHTML = pageHead("Lương HLV") +
+  V.innerHTML = pageHead("Lương HLV") + coachTabs("#/payroll") +
     `<div class="card"><div class="row"><label style="margin:0">Tháng</label>
      <input type="month" id="prMonth" value="${m}" style="width:auto">
      <button class="btn" onclick="payrollMonth=document.getElementById('prMonth').value;vPayroll()">Xem</button>
@@ -1304,12 +1316,8 @@ async function vActivities() {
   }
   actDate = actDate || todayInput();
   actMonth = actMonth || todayInput().slice(0, 7);
-  V.innerHTML = pageHead("Hoạt động") +
-    `<div class="row" style="margin-bottom:.6rem">
-       <button class="btn ${actTab === "rent" ? "" : "ghost"}" onclick="actTab='rent';vActivities()">🏟️ Cho thuê sân</button>
-       <button class="btn ${actTab === "private" ? "" : "ghost"}" onclick="actTab='private';vActivities()">🥋 Dạy 1:1</button>
-       <button class="btn ${actTab === "perf" ? "" : "ghost"}" onclick="actTab='perf';vActivities()">🎭 Biểu diễn</button>
-     </div><div id="actBody"><p class="muted">Đang tải...</p></div>`;
+  V.innerHTML = pageHead("Hoạt động") + actTabsHtml(actTab) +
+    `<div id="actBody"><p class="muted">Đang tải...</p></div>`;
   if (actTab === "rent") await actRentView();
   else if (actTab === "private") await actPrivateView();
   else await actPerfView();
@@ -1571,13 +1579,13 @@ async function vFees() {
     const exp = await api("GET", `/expenses/summary?branch_id=${S.branchId}&month=${m}`).catch(() => ({ grandTotal: 0 }));
     const bc = sum.byCategory;
     const teaching = (bc.tuition.total || 0) + (bc.private.total || 0);
-    const nonTeaching = (bc.rental.total || 0) + (bc.performance.total || 0) + (bc.other.total || 0);
+    const nonTeaching = (bc.rental.total || 0) + (bc.performance.total || 0) + (bc.training.total || 0) + (bc.other.total || 0);
     revHtml = `<div class="card"><h3>💰 Tổng quan tháng ${m.slice(5)}/${m.slice(0, 4)}: ${fmtVND(sum.grandTotal)}</h3>
       <div class="tbl-wrap"><table><tr><th>Nhóm</th><th style="text-align:right">Số khoản</th><th style="text-align:right">Tổng</th></tr>
       ${Object.keys(CAT_LABEL).map((k) => `<tr><td>${CAT_LABEL[k]}</td><td style="text-align:right">${sum.byCategory[k].count}</td>
       <td style="text-align:right"><b>${fmtVND(sum.byCategory[k].total)}</b></td></tr>`).join("")}</table></div>
       <p style="margin:.6rem 0 0">🎓 <b>Hoạt động giảng dạy</b> (học phí lớp + dạy 1:1): <b>${fmtVND(teaching)}</b><br>
-      🏟️ <b>Hoạt động khác</b> (cho thuê + biểu diễn + khác): <b>${fmtVND(nonTeaching)}</b><br>
+      🏟️ <b>Hoạt động khác</b> (cho thuê + biểu diễn + tập huấn + khác): <b>${fmtVND(nonTeaching)}</b><br>
       💸 <b>Tổng chi tháng</b> (xem ở Lương HLV / sổ chi): <b>${fmtVND(exp.grandTotal)}</b><br>
       ⚖️ <b>Chênh lệch thu − chi</b>: <b style="color:${sum.grandTotal - exp.grandTotal >= 0 ? "var(--ok)" : "var(--bad)"}">${fmtVND(sum.grandTotal - exp.grandTotal)}</b></p></div>`;
   }
@@ -1591,6 +1599,38 @@ async function vFees() {
     ${pays.slice(0, 30).map((p) => `<tr><td>${fmtDate(p.paid_on)}</td><td>${esc(p.student_name || p.note || "—")}</td>
     <td class="muted">${CAT_LABEL[p.category] || p.category}</td>${isAdminLike() ? `<td style="text-align:right"><b>${fmtVND(p.amount)}</b></td>` : ""}</tr>`).join("")}</table></div>`
     : `<p class="muted">Chưa có khoản thu nào.</p>`;
+}
+/* ----- tài chính: doanh thu tách theo hạng mục (chỉ admin + quản lý) ----- */
+let finTab = "tuition", finMonth = null;
+const FIN_TABS = [["tuition", "🎓 Giảng dạy"], ["private", "🥋 Giảng dạy 1:1"], ["rental", "🏟️ Cho thuê"], ["performance", "🎭 Biểu diễn"], ["training", "📚 Tập huấn"]];
+async function vFinance() {
+  if (!isAdminLike()) { location.hash = "#/dashboard"; return; }
+  const m = finMonth || todayInput().slice(0, 7);
+  finMonth = m;
+  const bName = (S.branches.find((b) => b.id === S.branchId) || {}).name || "";
+  V.innerHTML = pageHead("Tài chính") +
+    `<div class="row" style="margin-bottom:.6rem">${FIN_TABS.map(([k, label]) =>
+      `<button class="btn ${finTab === k ? "" : "ghost"}" onclick="finTab='${k}';vFinance()">${label}</button>`).join("")}</div>
+     <div class="card"><div class="row"><label style="margin:0">Tháng</label>
+     <input type="month" id="finMonthInp" value="${m}" style="width:auto">
+     <button class="btn" onclick="finMonth=document.getElementById('finMonthInp').value;vFinance()">Xem</button>
+     <span class="muted">Chi nhánh: <b>${esc(bName)}</b> (đổi chi nhánh ở thanh trên cùng)</span></div>
+     <div id="finBody"><p class="muted">Đang tải...</p></div></div>`;
+  const label = (FIN_TABS.find(([k]) => k === finTab) || [])[1] || "";
+  try {
+    const lastDay = new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate();
+    const pays = await api("GET", `/payments?branch_id=${S.branchId}&category=${finTab}&from=${m}-01&to=${m}-${String(lastDay).padStart(2, "0")}`);
+    const total = pays.reduce((a, p) => a + Number(p.amount || 0), 0);
+    $("#finBody").innerHTML = `<p style="margin:.7rem 0 0">Tổng thu <b>${label}</b> tháng ${m.slice(5)}/${m.slice(0, 4)}: <b>${fmtVND(total)}</b> · ${pays.length} khoản</p>` +
+      (pays.length ? `<div class="tbl-wrap"><table><tr><th>Ngày</th><th>Học viên / Nội dung</th><th>Người thu</th><th style="text-align:right">Số tiền</th></tr>
+      ${pays.map((p) => `<tr><td>${fmtDate(p.paid_on)}</td>
+      <td>${esc(p.student_name || p.note || "—")}${p.student_name && p.note ? `<br><span class="muted">${esc(p.note)}</span>` : ""}</td>
+      <td class="muted">${esc(p.created_by_name || "—")}</td>
+      <td style="text-align:right"><b>${fmtVND(p.amount)}</b></td></tr>`).join("")}</table></div>`
+      : `<p class="muted">Chưa có khoản thu nào thuộc hạng mục này trong tháng.</p>`);
+  } catch (err) {
+    $("#finBody").innerHTML = `<p style="color:var(--bad)">${esc(err.message)}</p>`;
+  }
 }
 window.payFor = async (studentId, classId) => {
   let s = null;
@@ -1795,6 +1835,8 @@ async function route() {
     else if (seg[0] === "shift-swaps") await vShiftSwaps();
     else if (seg[0] === "directory") await vDirectory();
     else if (seg[0] === "fees") await vFees();
+    else if (seg[0] === "coaches") { location.hash = "#/timesheets"; return; }
+    else if (seg[0] === "finance") await vFinance();
     else if (seg[0] === "payroll") await vPayroll();
     else if (seg[0] === "activities") await vActivities();
     else if (seg[0] === "audit") await vAudit();

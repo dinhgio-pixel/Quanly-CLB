@@ -9,7 +9,7 @@ const { accessibleClassIds, classIdCondition, assertClassAccess, studentClassId,
 const router = express.Router();
 router.use(requireAuth);
 
-const CATEGORIES = ["tuition", "private", "rental", "performance", "other"];
+const CATEGORIES = ["tuition", "private", "rental", "performance", "training", "other"];
 
 router.get("/", async (req, res) => {
   const { branch_id, category, from, to, student_id } = req.query;

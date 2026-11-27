@@ -17,6 +17,22 @@ const { getPool } = require("../src/db");
   await pool.query("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin','manager','coach','student'))");
   console.log("[init] users role check OK");
 
+  // Mở rộng hạng mục thu payments thêm 'training' (Tập huấn) cho DB đã tạo từ trước:
+  // tìm CHECK constraint hiện tại trên cột category, gỡ ra và đặt lại với danh sách mới.
+  try {
+    const cons = await pool.query(
+      `SELECT tc.constraint_name FROM information_schema.table_constraints tc
+         JOIN information_schema.check_constraints cc ON cc.constraint_name = tc.constraint_name
+        WHERE tc.table_name = 'payments' AND tc.constraint_type = 'CHECK' AND cc.check_clause LIKE '%category%'`);
+    for (const row of cons.rows) {
+      await pool.query(`ALTER TABLE payments DROP CONSTRAINT IF EXISTS "${row.constraint_name}"`);
+    }
+    await pool.query("ALTER TABLE payments ADD CONSTRAINT payments_category_check CHECK (category IN ('tuition','private','rental','performance','training','other'))");
+    console.log("[init] payments category check OK");
+  } catch (e) {
+    console.log("[init] payments category check skip:", e.message);
+  }
+
   // KHÓA CỬA PHỤ SUPABASE (khắc phục cảnh báo rls_disabled_in_public / sensitive_columns_exposed):
   // Supabase mặc định mở 1 lớp API công khai (PostgREST + khóa anon). Bật RLS cho MỌI bảng
   // (không tạo policy nào = chặn hoàn toàn anon/authenticated qua lớp API đó) và thu hồi quyền.

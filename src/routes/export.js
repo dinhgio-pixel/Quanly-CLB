@@ -182,7 +182,7 @@ router.get("/timesheets", requireRole("admin", "manager"), async (req, res) => {
 
 // --- Báo cáo tài chính tháng theo chi nhánh (chỉ admin) ---
 const { computePayroll } = require("./payroll");
-const REV_LABEL = { tuition: "Học phí lớp", private: "Dạy 1:1", rental: "Cho thuê", performance: "Biểu diễn", other: "Thu khác" };
+const REV_LABEL = { tuition: "Học phí lớp", private: "Dạy 1:1", rental: "Cho thuê", performance: "Biểu diễn", training: "Tập huấn", other: "Thu khác" };
 const EXP_LABEL_X = { salary: "Lương HLV", performance: "Chi phí biểu diễn", other: "Chi khác" };
 const PAY_TYPE_LABEL_X = { hourly: "Theo giờ", fixed: "Cố định tháng", revenue_share: "% doanh thu giảng dạy" };
 const dFmt = (d) => String(d).slice(0, 10).split("-").reverse().join("/");

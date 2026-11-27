@@ -61,7 +61,7 @@ router.get("/", async (req, res) => {
         `SELECT category, COALESCE(SUM(amount),0)::int AS total FROM payments
          WHERE ${where} GROUP BY category`, vals
       );
-      revenue = { tuition: 0, private: 0, rental: 0, performance: 0, other: 0 };
+      revenue = { tuition: 0, private: 0, rental: 0, performance: 0, training: 0, other: 0 };
       for (const r of rev.rows) if (revenue[r.category] !== undefined) revenue[r.category] = r.total;
     }
 

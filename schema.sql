@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS payments (
   branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
   student_id   INTEGER REFERENCES students(id) ON DELETE SET NULL,
   category     VARCHAR(30) NOT NULL DEFAULT 'tuition'
-               CHECK (category IN ('tuition', 'private', 'rental', 'performance', 'other')),
+               CHECK (category IN ('tuition', 'private', 'rental', 'performance', 'training', 'other')),
   amount       INTEGER NOT NULL CHECK (amount > 0),
   paid_on      DATE NOT NULL,
   paid_through DATE,
